@@ -156,7 +156,10 @@ describe('Agent', () => {
   });
 
   it('asks for an estimate when a card enters Doing, and starts a focus session from the answer', async () => {
-    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
+    // Midday, so the board poll is not skipped for quiet hours (23:00-08:00).
+    const noon = new Date();
+    noon.setHours(12, 0, 0, 0);
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout', 'Date'], now: noon });
     try {
       const file = join(vault, 'Kanban.md');
       writeFileSync(file, BOARD.replace('## Doing\n', '## Doing\n- [ ] Write intro ^aaa111\n').replace('- [ ] Write intro ^aaa111\n- [ ] Gym', '- [ ] Gym'));
