@@ -1,0 +1,38 @@
+{
+  "name": "obsidian-voice-agent",
+  "version": "0.1.0",
+  "description": "Talk to your Obsidian vault. A voice agent powered by Claude Code, Codex or Antigravity, with briefings and kanban check-ins.",
+  "private": true,
+  "type": "module",
+  "license": "MIT",
+  "author": "Fabian Ferno",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/fabianferno/obsidian-voice-agent.git"
+  },
+  "packageManager": "pnpm@12.3.4",
+  "scripts": {
+    "build": "tsc --noEmit && node esbuild.config.mjs production",
+    "dev": "node esbuild.config.mjs",
+    "typecheck": "tsc --noEmit",
+    "lint": "eslint src",
+    "test": "vitest run",
+    "test:watch": "vitest"
+  },
+  "dependencies": {
+    "@huggingface/transformers": "3.8.1",
+    "kokoro-js": "1.2.1"
+  },
+  "devDependencies": {
+    "@eslint/js": "^9.39.5",
+    "@types/node": "^22.0.0",
+    "esbuild": "^0.28.2",
+    "eslint": "^9.39.5",
+    "eslint-plugin-obsidianmd": "0.5.1",
+    "globals": "^17.14.0",
+    "obsidian": "^1.14.4",
+    "typescript": "^5.6.0",
+    "typescript-eslint": "^8.72.1",
+    "vitest": "^2.1.0"
+  }
+}

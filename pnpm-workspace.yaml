@@ -1,0 +1,9 @@
+# pnpm settings (pnpm v11+ reads these here, not from package.json).
+# Only esbuild needs its install script. The others come in through
+# transformers.js's Node build, which the plugin never uses (it bundles the
+# web build), so their native installs are skipped.
+allowBuilds:
+  esbuild: true
+  onnxruntime-node: false
+  protobufjs: false
+  sharp: false

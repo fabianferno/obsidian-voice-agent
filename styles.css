@@ -1,0 +1,151 @@
+/* Voice Agent panel. Uses Obsidian theme variables so it fits any theme. */
+
+.va-root {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  padding: 0 !important;
+}
+
+.va-header {
+  display: flex;
+  align-items: center;
+  gap: var(--size-4-2);
+  padding: var(--size-4-2) var(--size-4-3);
+  border-bottom: 1px solid var(--background-modifier-border);
+}
+
+.va-title {
+  font-weight: var(--font-semibold);
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.va-state {
+  font-size: var(--font-ui-smaller);
+  color: var(--text-muted);
+  padding: 2px 8px;
+  border-radius: var(--radius-l);
+  background: var(--background-modifier-hover);
+}
+.va-state[data-state="listening"],
+.va-state[data-state="hearing"] { color: var(--text-on-accent); background: var(--interactive-accent); }
+.va-state[data-state="thinking"],
+.va-state[data-state="transcribing"] { color: var(--text-normal); background: var(--background-modifier-active-hover); }
+.va-state[data-state="speaking"] { color: var(--text-on-accent); background: var(--color-green); }
+
+.va-notice {
+  display: none;
+  font-size: var(--font-ui-smaller);
+  color: var(--text-muted);
+  padding: var(--size-4-1) var(--size-4-3);
+  border-bottom: 1px solid var(--background-modifier-border);
+}
+.va-notice.is-visible { display: block; }
+
+.va-list {
+  flex: 1;
+  overflow-y: auto;
+  padding: var(--size-4-3);
+  display: flex;
+  flex-direction: column;
+  gap: var(--size-4-2);
+  user-select: text;
+}
+
+.va-empty {
+  margin: auto;
+  text-align: center;
+  color: var(--text-muted);
+  max-width: 260px;
+}
+.va-empty-hint { font-size: var(--font-ui-smaller); margin-top: var(--size-4-2); color: var(--text-faint); }
+
+.va-msg {
+  max-width: 92%;
+  padding: var(--size-4-2) var(--size-4-3);
+  border-radius: var(--radius-m);
+  line-height: 1.45;
+}
+.va-text { white-space: pre-wrap; word-break: break-word; }
+
+.va-user {
+  align-self: flex-end;
+  background: var(--interactive-accent);
+  color: var(--text-on-accent);
+}
+
+.va-agent {
+  align-self: flex-start;
+  background: var(--background-secondary);
+  border: 1px solid var(--background-modifier-border);
+}
+.va-agent.va-proactive { border-left: 3px solid var(--interactive-accent); }
+
+.va-error {
+  align-self: stretch;
+  font-size: var(--font-ui-smaller);
+  color: var(--text-error);
+  background: rgba(var(--color-red-rgb), 0.08);
+}
+
+.va-label {
+  font-size: var(--font-ui-smaller);
+  font-weight: var(--font-semibold);
+  color: var(--text-accent);
+  margin-bottom: 2px;
+}
+
+.va-status, .va-typing {
+  font-size: var(--font-ui-smaller);
+  color: var(--text-muted);
+  margin-top: 2px;
+}
+.va-typing { animation: va-pulse 1.4s ease-in-out infinite; }
+.va-error-text { font-size: var(--font-ui-smaller); color: var(--text-error); margin-top: 4px; white-space: pre-wrap; }
+
+@keyframes va-pulse { 50% { opacity: 0.45; } }
+
+.va-footer {
+  display: flex;
+  align-items: flex-end;
+  gap: var(--size-4-2);
+  padding: var(--size-4-2) var(--size-4-3) var(--size-4-3);
+  border-top: 1px solid var(--background-modifier-border);
+}
+
+.va-mic {
+  flex: none;
+  width: 40px;
+  height: 40px;
+  padding: 0;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+}
+.va-mic.is-on { background: var(--interactive-accent); color: var(--text-on-accent); }
+.va-mic.is-on[data-state="hearing"] { box-shadow: 0 0 0 4px rgba(var(--interactive-accent-rgb), 0.3); }
+@media (prefers-reduced-motion: no-preference) {
+  .va-mic.is-on[data-state="hearing"] { animation: va-ring 1.2s ease-out infinite; }
+}
+@keyframes va-ring {
+  0% { box-shadow: 0 0 0 0 rgba(var(--interactive-accent-rgb), 0.45); }
+  100% { box-shadow: 0 0 0 10px rgba(var(--interactive-accent-rgb), 0); }
+}
+
+.va-stop { display: none; flex: none; align-self: center; }
+.va-stop.is-visible { display: flex; }
+
+.va-input {
+  flex: 1;
+  resize: none;
+  min-height: 40px;
+  max-height: 160px;
+  field-sizing: content;
+  padding: var(--size-4-2) var(--size-4-3);
+  border-radius: var(--radius-m);
+}

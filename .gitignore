@@ -1,0 +1,7 @@
+node_modules/
+dist/
+main.js
+*.tgz
+.env
+.DS_Store
+data.json
