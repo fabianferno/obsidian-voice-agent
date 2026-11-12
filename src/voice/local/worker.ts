@@ -1,7 +1,7 @@
 // voice/local/worker.ts - local speech models, run in a Web Worker.
 //
-// Whisper (speech to text) and Kokoro (text to speech) via transformers.js on
-// the ONNX runtime's WASM backend. Built as its own browser bundle and started
+// Whisper (speech to text) via transformers.js on the ONNX runtime's WASM
+// backend. (Speech out uses the operating system's voice, see voice/system.ts.) Built as its own browser bundle and started
 // from a blob URL, so it never blocks Obsidian's UI thread. The ONNX runtime
 // files come in through the init message (see runtime.ts); models download
 // from Hugging Face on first use and are cached by the browser.
@@ -10,30 +10,25 @@
 // libraries below check for them.
 import { nodeGlobalsLeft } from './hide-node.js';
 import { env, pipeline } from '@huggingface/transformers';
-import { KokoroTTS } from 'kokoro-js';
 
 type Asr = (audio: Float32Array, opts?: Record<string, unknown>) => Promise<{ text: string } | Array<{ text: string }>>;
 
 export type WorkerRequest =
   | { id: number; type: 'init'; wasm: { mjs: string; wasm: string } }
-  | { id: number; type: 'load'; what: 'stt' | 'tts'; model: string }
-  | { id: number; type: 'transcribe'; model: string; audio: Float32Array }
-  | { id: number; type: 'synthesize'; model: string; text: string; voice: string; speed: number };
+  | { id: number; type: 'load'; model: string }
+  | { id: number; type: 'transcribe'; model: string; audio: Float32Array };
 
 export type WorkerResponse =
-  | { id: number; ok: true; text?: string; audio?: Float32Array; sampleRate?: number }
+  | { id: number; ok: true; text?: string }
   | { id: number; ok: false; error: string }
   | { id: -1; progress: { file?: string; loaded?: number; total?: number; status?: string; name?: string } };
 
 const ctx = self as unknown as {
-  postMessage(msg: WorkerResponse, transfer?: Transferable[]): void;
+  postMessage(msg: WorkerResponse): void;
   onmessage: ((e: MessageEvent<WorkerRequest>) => void) | null;
 };
 
 let asr: { model: string; p: Promise<Asr> } | undefined;
-let tts: { model: string; p: Promise<KokoroTTS> } | undefined;
-type KokoroVoice = NonNullable<Parameters<KokoroTTS['generate']>[1]>['voice'];
-let ttsQueue: Promise<unknown> = Promise.resolve();
 
 interface ProgressInfo { file?: string; loaded?: number; total?: number; status?: string; name?: string }
 const progress = (p: ProgressInfo | undefined) =>
@@ -61,15 +56,6 @@ function loadAsr(model: string): Promise<Asr> {
   return asr.p;
 }
 
-function loadTts(model: string): Promise<KokoroTTS> {
-  if (tts?.model !== model) {
-    const p = withRepair(() => KokoroTTS.from_pretrained(model, { dtype: 'q8', device: 'wasm', progress_callback: progress }));
-    tts = { model, p };
-    p.catch(() => { if (tts?.p === p) tts = undefined; });
-  }
-  return tts.p;
-}
-
 async function handle(msg: WorkerRequest): Promise<void> {
   try {
     switch (msg.type) {
@@ -88,7 +74,7 @@ async function handle(msg: WorkerRequest): Promise<void> {
         ctx.postMessage({ id: msg.id, ok: true });
         break;
       case 'load':
-        await (msg.what === 'stt' ? loadAsr(msg.model) : loadTts(msg.model));
+        await loadAsr(msg.model);
         ctx.postMessage({ id: msg.id, ok: true });
         break;
       case 'transcribe': {
@@ -96,18 +82,6 @@ async function handle(msg: WorkerRequest): Promise<void> {
         const out = await run(msg.audio);
         const text = Array.isArray(out) ? out.map(o => o.text).join(' ') : out.text;
         ctx.postMessage({ id: msg.id, ok: true, text });
-        break;
-      }
-      case 'synthesize': {
-        // Kokoro is not re-entrant: one generation at a time.
-        const job = ttsQueue.then(async () => {
-          const model = await loadTts(msg.model);
-          return model.generate(msg.text, { voice: msg.voice as KokoroVoice, speed: msg.speed });
-        });
-        ttsQueue = job.catch(() => undefined);
-        const audio = await job;
-        const samples = audio.audio;
-        ctx.postMessage({ id: msg.id, ok: true, audio: samples, sampleRate: audio.sampling_rate }, [samples.buffer]);
         break;
       }
     }

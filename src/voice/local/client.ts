@@ -1,6 +1,6 @@
-// voice/local/client.ts - talks to the local voice worker.
+// voice/local/client.ts - talks to the local speech recognition worker.
 
-import type { SpeechAudio, SpeechToText, TextToSpeech } from '../types.js';
+import type { SpeechToText } from '../types.js';
 import type { WorkerRequest, WorkerResponse } from './worker.js';
 import { cleanWhisper } from '../../speech/whisper-text.js';
 
@@ -14,7 +14,7 @@ export interface LocalVoiceOptions {
   onProgress?: (msg: string) => void;
 }
 
-/** One worker shared by local speech recognition and local speech. */
+/** The Web Worker that runs Whisper. */
 export class LocalVoiceWorker {
   private worker?: Worker;
   private ready?: Promise<void>;
@@ -84,25 +84,11 @@ export class LocalWhisper implements SpeechToText {
     this.label = `Whisper (local, ${model.split('/').pop()})`;
   }
   async warmup(): Promise<void> {
-    await this.w.call({ type: 'load', what: 'stt', model: this.model });
+    await this.w.call({ type: 'load', model: this.model });
   }
   async transcribe(samples: Float32Array): Promise<string> {
     const copy = samples.slice();
     const r = await this.w.call({ type: 'transcribe', model: this.model, audio: copy }, [copy.buffer]);
     return cleanWhisper(r.text ?? '');
-  }
-}
-
-export class LocalKokoro implements TextToSpeech {
-  readonly label: string;
-  constructor(private w: LocalVoiceWorker, private model: string, private voice: string, private speed: number) {
-    this.label = `Kokoro (local, ${voice})`;
-  }
-  async warmup(): Promise<void> {
-    await this.w.call({ type: 'load', what: 'tts', model: this.model });
-  }
-  async synthesize(text: string): Promise<SpeechAudio> {
-    const r = await this.w.call({ type: 'synthesize', model: this.model, text, voice: this.voice, speed: this.speed });
-    return { kind: 'pcm', samples: r.audio!, sampleRate: r.sampleRate ?? 24000 };
   }
 }

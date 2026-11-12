@@ -1,6 +1,6 @@
-// voice/local/runtime.ts - the ONNX runtime's WASM binary for local voice.
+// voice/local/runtime.ts - the ONNX runtime's WASM binary for local Whisper.
 //
-// The JavaScript (transformers.js, kokoro-js, the runtime's loader) is bundled
+// The JavaScript (transformers.js and the runtime's loader) is bundled
 // into the plugin. The 21 MB WASM binary is too big to bundle, so it is
 // downloaded once from jsDelivr, pinned to the exact build the loader was
 // bundled with, checked against a SHA-256 baked in at build time, and kept in

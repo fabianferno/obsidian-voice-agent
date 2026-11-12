@@ -1,9 +1,13 @@
 // voice/types.ts
 
-/** Audio to play: raw samples, or an encoded file (WAV, MP3) the browser decodes. */
+/**
+ * Audio to play: raw samples, an encoded file (WAV, MP3) the browser decodes,
+ * or text for the operating system's own voice to speak.
+ */
 export type SpeechAudio =
   | { kind: 'pcm'; samples: Float32Array; sampleRate: number }
-  | { kind: 'encoded'; data: ArrayBuffer };
+  | { kind: 'encoded'; data: ArrayBuffer }
+  | { kind: 'system'; text: string; voice?: string; rate: number };
 
 export interface SpeechToText {
   readonly label: string;

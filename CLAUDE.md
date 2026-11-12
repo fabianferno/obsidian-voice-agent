@@ -6,7 +6,8 @@ Guidance for Claude Code (and other coding agents) working in this repository.
 
 **Voice Agent**, an Obsidian desktop plugin you talk to. It uses a coding-agent CLI on the
 user's computer (Claude Code by default, Codex or Antigravity) as its brain, listens and
-speaks with local Whisper and Kokoro (or Sarvam / Soniox), and adds accountability features:
+listens with local Whisper and speaks with the OS's own voice (or ElevenLabs / Sarvam /
+Soniox), and adds accountability features:
 editable personality files, morning/midday/evening check-ins, adaptive nudges, focus tracking
 on the kanban Doing column, and a 48h triage nudge for quick-capture notes. Everything runs
 inside Obsidian; there is no server.
@@ -50,8 +51,9 @@ tag equal to the version (no "v"). `.github/workflows/release.yml` builds and at
 - `src/agent/execute-actions.ts` - runs actions through the tested writers. Config edits are
   gated: propose stages (30 min TTL), apply writes, discard drops.
 - `src/voice/` - `session.ts` (utterance -> STT -> agent -> sentence chunks -> TTS -> player,
-  with interrupts), `vad.ts` (energy VAD), `mic.ts`, `player.ts`, `cloud.ts` (Sarvam, Soniox),
-  `local/` (Whisper + Kokoro in a Web Worker; worker bundled separately and inlined as text;
+  with interrupts), `vad.ts` (energy VAD), `mic.ts`, `player.ts`, `cloud.ts` (Sarvam, Soniox,
+  ElevenLabs), `system.ts` (OS voice via speechSynthesis; the player speaks it in the same
+  ordered, stoppable queue), `local/` (Whisper in a Web Worker; worker bundled separately and inlined as text;
   the ONNX WASM binary is downloaded once from jsDelivr and checked against a SHA-256 baked in
   at build time).
 - `src/checkins/scheduler.ts` - daily checkpoints at local HH:MM, missed-checkpoint catch-up,

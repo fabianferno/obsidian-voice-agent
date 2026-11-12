@@ -1,4 +1,4 @@
-// voice/cloud.ts - Sarvam and Soniox speech, both optional and keyed.
+// voice/cloud.ts - Sarvam, Soniox and ElevenLabs speech, all optional and keyed.
 
 import type { SpeechAudio, SpeechToText, TextToSpeech } from './types.js';
 import { base64ToArrayBuffer, multipart, type Http } from './http.js';
@@ -67,6 +67,26 @@ export class SonioxTts implements TextToSpeech {
       contentType: 'application/json',
     });
     if (res.status >= 300) throw fail('Soniox speech', res.status, res.text);
+    return { kind: 'encoded', data: res.arrayBuffer };
+  }
+}
+
+/** ElevenLabs text-to-speech (REST). The most natural voices; MP3 back. */
+export class ElevenLabsTts implements TextToSpeech {
+  readonly label: string;
+  constructor(private http: Http, private apiKey: string, private opts: { voice: string; model: string }) {
+    this.label = `ElevenLabs (${opts.model})`;
+  }
+
+  async synthesize(text: string): Promise<SpeechAudio> {
+    const res = await this.http({
+      url: `https://api.elevenlabs.io/v1/text-to-speech/${encodeURIComponent(this.opts.voice)}?output_format=mp3_44100_128`,
+      method: 'POST',
+      headers: { 'xi-api-key': this.apiKey, Accept: 'audio/mpeg' },
+      body: JSON.stringify({ text, model_id: this.opts.model }),
+      contentType: 'application/json',
+    });
+    if (res.status >= 300) throw fail('ElevenLabs speech', res.status, res.text);
     return { kind: 'encoded', data: res.arrayBuffer };
   }
 }

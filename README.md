@@ -7,14 +7,15 @@ let it brief you in the morning and wind you down in the evening.
 
 - **Any engine.** Claude Code (default), Codex or Antigravity. Switch in settings. The plugin
   uses your installed CLI and your existing sign-in; there is no extra AI account or API key.
-- **Local voice by default.** Speech recognition (Whisper) and speech (Kokoro) run on your
-  computer: free, private, offline after a one-time download. Sarvam and Soniox are optional
-  cloud voices if you want lower latency or Indian languages.
+- **Local voice by default.** Speech recognition runs Whisper on your computer, and the agent
+  speaks with your operating system's own voice (the one macOS, Windows or Linux already
+  ships): free, private, instant, no key. ElevenLabs, Sarvam and Soniox are optional cloud
+  voices if you want a more natural voice or Indian languages.
 - **An accountability partner, not just a chat box.** A personality you can edit, morning,
   midday and evening check-ins, gentle nudges in between, focus tracking on your kanban
   "Doing" column, and a 48-hour triage nudge for quick-capture notes.
 
-Desktop only (macOS, Windows, Linux). Early release (0.1.0): expect rough edges, and please
+Desktop only (macOS, Windows, Linux). Early release (0.2.0): expect rough edges, and please
 [open an issue](https://github.com/fabianferno/obsidian-voice-agent/issues) when something
 breaks.
 
@@ -30,7 +31,7 @@ breaks.
              reply text, streamed  <--+--> agent actions (move card, add task,
                      |                     update memory, propose config edit)
                      v                              |
-  sentences -> speech (local Kokoro / Sarvam / Soniox)    run by the plugin's validated writers
+  sentences -> speech (system voice / ElevenLabs / Sarvam / Soniox)   run by the plugin's validated writers
 ```
 
 The engine runs with your vault as its working directory, so it can read, search and edit
@@ -87,9 +88,19 @@ On first run the plugin creates the agent's files in the agent folder (`agent/` 
 `soul.md`, `identity.md`, `user.md`, `goals.md` and `memory.md`. Edit them to shape the agent.
 `user.md` holds your timezone, quiet hours, check-in interval and coordinates (for weather).
 
-The first time you use local voice, the plugin downloads the ONNX runtime (21 MB, from
-jsDelivr, verified by checksum) and the Whisper and Kokoro models (about 150 MB, from Hugging
-Face). After that it works offline.
+The first time you talk to it, the plugin downloads the ONNX runtime (21 MB, from jsDelivr,
+verified by checksum) and the Whisper model (about 80 MB for the default, from Hugging Face).
+After that it works offline. The system voice needs no download.
+
+The system voice sounds as good as the voices you have installed. **Automatic** (the default)
+picks the best one for your language: a Premium voice, then an Enhanced one, then the basic
+default. So on macOS, download a Premium or Enhanced voice in System Settings, Accessibility,
+Spoken Content, System voice, Manage voices (on Windows: Settings, Time & language, Speech, Add
+voices), restart Obsidian, and press **Play** under Test voice to hear it. Joke voices (Bells,
+Bad News and friends) are left out. A macOS Personal Voice is not available to Obsidian, since
+Apple only offers it to apps that ask for permission.
+
+Updating from 0.1.x: the old Kokoro voice model is deleted from the cache automatically.
 
 ## Talking to it
 
@@ -124,9 +135,14 @@ same day. Quiet hours come from `user.md`.
 
 | | Listen | Speak | Key | Notes |
 | --- | --- | --- | --- | --- |
-| Local | Whisper (tiny/base/small) | Kokoro (13 voices) | none | Private and free. A second or two slower than cloud. |
+| Local / System | Whisper (tiny/base/small) | Your OS voice | none | Private and free. Speech starts instantly; quality depends on the voices installed. |
+| ElevenLabs | no | yes | ElevenLabs API key | The most natural voices. |
 | Sarvam | yes | Bulbul | Sarvam API key | Strong on Indian languages and accents. |
 | Soniox | yes | yes | Soniox API key | Fast real-time recognition. |
+
+The system voice uses the Web Speech API, which Obsidian connects to the native engine:
+AVSpeechSynthesizer on macOS, Windows' speech voices on Windows and speech-dispatcher on
+Linux (install it with a voice such as espeak-ng if the voice list is empty).
 
 Keys are stored in Obsidian's secret storage, not in the plugin's settings file.
 
@@ -138,21 +154,22 @@ services, and only for these reasons:
 | Service | When | What is sent |
 | --- | --- | --- |
 | Your engine (Claude Code, Codex or Antigravity) | Every message to the agent, and each check-in | Your words, the agent's context (time, board, personality files) and whatever notes the engine opens. The plugin runs the CLI; the CLI talks to its own provider (Anthropic, OpenAI or Google) under your existing sign-in and their terms. |
-| `huggingface.co` | First use of local voice, or when you pick a different model | Nothing about you. Downloads the Whisper and Kokoro models (about 150 MB), then cached. |
-| `cdn.jsdelivr.net` | First use of local voice | Nothing about you. Downloads the ONNX runtime for transformers.js 3.8.1 (21 MB), checked against a SHA-256 fixed in the plugin, then cached. |
+| `huggingface.co` | First use of local speech recognition, or when you pick a different Whisper model | Nothing about you. Downloads the Whisper model (40 to 250 MB), then cached. |
+| `cdn.jsdelivr.net` | First use of local speech recognition | Nothing about you. Downloads the ONNX runtime for transformers.js 3.8.1 (21 MB), checked against a SHA-256 fixed in the plugin, then cached. |
 | `api.sarvam.ai` | Only if you choose Sarvam | Your speech audio (to transcribe) or the agent's reply text (to speak), with your Sarvam key. |
 | `stt-rt.soniox.com`, `tts-rt.soniox.com` | Only if you choose Soniox | Your speech audio or the agent's reply text, with your Soniox key. |
+| `api.elevenlabs.io` | Only if you choose ElevenLabs | The agent's reply text, with your ElevenLabs key. |
 | `api.open-meteo.com` | Check-ins, if weather is on and `user.md` has coordinates | The coordinates from `user.md`. Turn weather off in settings. |
 
-With local voice, audio never leaves your computer.
+With local speech recognition and the system voice, audio never leaves your computer.
 
 ## Files outside your vault
 
 - `~/.obsidian-voice-agent/state/` - the agent's working state per vault: focus sessions,
   the last 200 messages, check-in times. Kept outside the vault so sync and git plugins don't
   commit it. Delete the folder to reset the agent.
-- `~/.obsidian-voice-agent/runtime/` - the downloaded ONNX runtime for local voice.
-- Obsidian's browser cache - the downloaded voice models.
+- `~/.obsidian-voice-agent/runtime/` - the downloaded ONNX runtime for local Whisper.
+- Obsidian's browser cache - the downloaded Whisper model.
 - The engine CLI keeps its own conversation history where it always does (for example
   `~/.claude/` for Claude Code).
 
@@ -181,8 +198,8 @@ Layout:
 - `src/agent/` - the agent: turns, actions, scheduler loop, kanban focus tracking.
 - `src/engines/` - one adapter per CLI (Claude Code, Codex, Antigravity).
 - `src/brain/` - prompt building, the actions protocol, signals and priorities.
-- `src/voice/` - mic, voice detection, playback, providers; `voice/local/` runs Whisper and
-  Kokoro in a Web Worker.
+- `src/voice/` - mic, voice detection, playback, providers; `voice/system.ts` is the OS voice,
+  `voice/local/` runs Whisper in a Web Worker.
 - `src/vault/`, `src/config/`, `src/context/`, `src/focus/`, `src/checkins/` - vault I/O,
   personality files, context, focus sessions, timers.
 

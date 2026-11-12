@@ -1,118 +1,28 @@
 // plugin/settings.ts - everything the user can set, and the settings tab.
 
-import { App, Notice, PluginSettingTab, SecretComponent, Setting } from 'obsidian';
+import { App, Notice, Platform, PluginSettingTab, SecretComponent, Setting } from 'obsidian';
 import type VoiceAgentPlugin from './main.js';
 import { ENGINES, ENGINE_INFO, type EngineName } from '../engines/index.js';
 import { DEFAULT_LAYOUT, type VaultLayout } from '../config/paths.js';
-import { DEFAULT_CHECKPOINT_TIMES, parseTime, type CheckpointTimes } from '../checkins/scheduler.js';
+import { parseTime } from '../checkins/scheduler.js';
+import { pickBestVoice, systemVoices, voiceQuality, type VoiceInfo } from '../voice/system.js';
 
-export const STT_CHOICES = ['local', 'sarvam', 'soniox'] as const;
-export const TTS_CHOICES = ['local', 'sarvam', 'soniox', 'off'] as const;
-export type SttChoice = (typeof STT_CHOICES)[number];
-export type TtsChoice = (typeof TTS_CHOICES)[number];
+export * from './settings-data.js';
+import { type SttChoice, type StringSettingKey, type TtsChoice, type VoiceAgentSettings } from './settings-data.js';
 
-/** Settings holding plain text, edited with the generic text field. */
-type StringSettingKey = {
-  [K in keyof VoiceAgentSettings]: VoiceAgentSettings[K] extends string ? K : never;
-}[keyof VoiceAgentSettings];
+const VOICE_TIP = Platform.isMacOS
+  ? 'Automatic uses your best installed voice for your language. For a much more natural one, download a Premium or Enhanced voice in System Settings, Accessibility, Spoken Content, System voice, Manage voices, then restart Obsidian. (Personal Voice is not available to Obsidian.)'
+  : Platform.isWin
+    ? 'More voices: Windows Settings, Time & language, Speech, Add voices. Then restart Obsidian.'
+    : 'Voices come from speech-dispatcher (for example espeak-ng or piper).';
 
-export interface VoiceAgentSettings {
-  engine: EngineName;
-  /** Optional full path per engine, when it is not on PATH. */
-  engineBin: Record<EngineName, string>;
-  model: string;
-  permissions: 'edit' | 'full';
-  extraArgs: string;
-
-  agentName: string;
-  layout: VaultLayout;
-  checkpointTimes: CheckpointTimes;
-  greetOnOpen: boolean;
-  pulses: boolean;
-  weather: boolean;
-
-  stt: SttChoice;
-  tts: TtsChoice;
-  speakProactive: boolean;
-  bargeIn: boolean;
-  /** Start listening as soon as the panel opens. */
-  listenOnOpen: boolean;
-  localSttModel: string;
-  localVoice: string;
-  localSpeed: number;
-  /** Names of secrets in Obsidian's secret storage (not the keys themselves). */
-  sarvamSecret: string;
-  sonioxSecret: string;
-  sarvamSttLanguage: string;
-  sarvamTtsModel: string;
-  sarvamTtsSpeaker: string;
-  sarvamTtsLanguage: string;
-  sonioxSttModel: string;
-  sonioxTtsModel: string;
-  sonioxTtsVoice: string;
-  sonioxLanguage: string;
+/** Voices in the system language first, best quality first, then alphabetical. */
+function sortVoices(voices: VoiceInfo[]): VoiceInfo[] {
+  const lang = (navigator.language || 'en').slice(0, 2).toLowerCase();
+  const rank = (v: VoiceInfo) => (v.lang.toLowerCase().startsWith(lang) ? 0 : 1);
+  return [...voices].sort((a, b) => rank(a) - rank(b) || voiceQuality(b.name) - voiceQuality(a.name) || a.name.localeCompare(b.name));
 }
 
-export const DEFAULT_SETTINGS: VoiceAgentSettings = {
-  engine: 'claude',
-  engineBin: { claude: '', codex: '', antigravity: '' },
-  model: '',
-  permissions: 'edit',
-  extraArgs: '',
-
-  agentName: '',
-  layout: { ...DEFAULT_LAYOUT },
-  checkpointTimes: { ...DEFAULT_CHECKPOINT_TIMES },
-  greetOnOpen: true,
-  pulses: true,
-  weather: true,
-
-  stt: 'local',
-  tts: 'local',
-  speakProactive: true,
-  bargeIn: false,
-  listenOnOpen: false,
-  localSttModel: 'Xenova/whisper-base.en',
-  localVoice: 'af_heart',
-  localSpeed: 1.1,
-  sarvamSecret: '',
-  sonioxSecret: '',
-  sarvamSttLanguage: 'unknown',
-  sarvamTtsModel: 'bulbul:v3',
-  sarvamTtsSpeaker: '',
-  sarvamTtsLanguage: 'en-IN',
-  sonioxSttModel: 'stt-rt-v3',
-  sonioxTtsModel: 'tts-rt-v2',
-  sonioxTtsVoice: 'Adrian',
-  sonioxLanguage: 'en',
-};
-
-/** Fills in anything missing from saved settings (older versions, hand edits). */
-export function mergeSettings(saved: Partial<VoiceAgentSettings> | null | undefined): VoiceAgentSettings {
-  const s = saved ?? {};
-  return {
-    ...DEFAULT_SETTINGS,
-    ...s,
-    engineBin: { ...DEFAULT_SETTINGS.engineBin, ...(s.engineBin ?? {}) },
-    layout: { ...DEFAULT_SETTINGS.layout, ...(s.layout ?? {}) },
-    checkpointTimes: { ...DEFAULT_SETTINGS.checkpointTimes, ...(s.checkpointTimes ?? {}) },
-    engine: ENGINES.includes(s.engine as EngineName) ? (s.engine as EngineName) : DEFAULT_SETTINGS.engine,
-  };
-}
-
-/** Splits extra CLI args, honouring simple quotes. */
-export function parseExtraArgs(raw: string): string[] {
-  const out: string[] = [];
-  const re = /"([^"]*)"|'([^']*)'|(\S+)/g;
-  let m: RegExpExecArray | null;
-  while ((m = re.exec(raw))) out.push(m[1] ?? m[2] ?? m[3]);
-  return out;
-}
-
-const KOKORO_VOICES = [
-  'af_heart', 'af_bella', 'af_nicole', 'af_sarah', 'af_kore', 'af_aoede', 'am_michael', 'am_fenrir', 'am_puck',
-  'bf_emma', 'bf_isabella', 'bm_george', 'bm_fable',
-];
 const WHISPER_MODELS: Record<string, string> = {
   'Xenova/whisper-tiny.en': 'Tiny (English, fastest)',
   'Xenova/whisper-base.en': 'Base (English, recommended)',
@@ -195,8 +105,8 @@ export class VoiceAgentSettingTab extends PluginSettingTab {
         }));
     new Setting(containerEl)
       .setName('Speak with')
-      .setDesc('Local runs Kokoro on this computer: free, private, no key.')
-      .addDropdown(d => d.addOption('local', 'Local (Kokoro)').addOption('sarvam', 'Sarvam').addOption('soniox', 'Soniox').addOption('off', 'Off (text only)')
+      .setDesc('System voice is built into your computer: instant, private, no download, no key. ElevenLabs, Sarvam and Soniox are cloud voices that need a key.')
+      .addDropdown(d => d.addOption('system', 'System voice').addOption('elevenlabs', 'ElevenLabs').addOption('sarvam', 'Sarvam').addOption('soniox', 'Soniox').addOption('off', 'Off (text only)')
         .setValue(s.tts).onChange(async v => {
           s.tts = v as TtsChoice;
           await save({ voice: true });
@@ -212,18 +122,46 @@ export class VoiceAgentSettingTab extends PluginSettingTab {
         });
       });
     }
-    if (s.tts === 'local') {
-      new Setting(containerEl).setName('Kokoro voice').addDropdown(d => {
-        for (const v of KOKORO_VOICES) d.addOption(v, v);
-        d.setValue(s.localVoice).onChange(async v => {
-          s.localVoice = v;
-          await save({ voice: true });
+    if (s.tts === 'system') {
+      new Setting(containerEl)
+        .setName('System voice')
+        .setDesc(VOICE_TIP)
+        .addDropdown(d => {
+          d.addOption('', 'Automatic (best voice installed)');
+          if (s.systemVoice) d.addOption(s.systemVoice, s.systemVoice);
+          d.setValue(s.systemVoice).onChange(async v => {
+            s.systemVoice = v;
+            await save({ voice: true });
+          });
+          void (async () => {
+            const voices = await systemVoices();
+            for (const v of sortVoices(voices)) if (v.name !== s.systemVoice) d.addOption(v.name, `${v.name} (${v.lang})`);
+            d.setValue(s.systemVoice);
+            const auto = pickBestVoice(voices, navigator.language || 'en-US');
+            if (auto) d.selectEl.options[0].text = `Automatic (now: ${auto.name})`;
+          })().catch(() => undefined);
         });
-      });
-      new Setting(containerEl).setName('Speaking speed').addSlider(sl => sl.setLimits(0.7, 1.5, 0.05).setValue(s.localSpeed).onChange(async v => {
-        s.localSpeed = v;
+      new Setting(containerEl).setName('Speaking speed').addSlider(sl => sl.setLimits(0.7, 1.5, 0.05).setValue(s.speechRate).onChange(async v => {
+        s.speechRate = v;
         await save({ voice: true });
       }));
+    }
+    if (s.tts === 'elevenlabs') {
+      new Setting(containerEl)
+        .setName('ElevenLabs API key')
+        .setDesc('Stored in Obsidian\'s secret storage, not in the plugin settings file.')
+        .addComponent(el => new SecretComponent(this.app, el).setValue(s.elevenlabsSecret).onChange(async v => {
+          s.elevenlabsSecret = v ?? '';
+          await save({ voice: true });
+        }));
+      this.text(containerEl, 'ElevenLabs voice ID', 'From the voice library (Voices, then the ID button). The default is a premade voice that works on the free plan.', 'elevenlabsVoice');
+      this.text(containerEl, 'ElevenLabs model', 'eleven_flash_v2_5 is the fastest. eleven_multilingual_v2 sounds richer but is slower.', 'elevenlabsModel');
+    }
+    if (s.tts !== 'off') {
+      new Setting(containerEl)
+        .setName('Test voice')
+        .setDesc('Say a short sentence with the current voice.')
+        .addButton(b => b.setButtonText('Play').onClick(() => void this.plugin.previewVoice()));
     }
 
     const usesSarvam = s.stt === 'sarvam' || s.tts === 'sarvam';

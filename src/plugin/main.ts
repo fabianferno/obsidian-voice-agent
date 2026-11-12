@@ -14,9 +14,12 @@ import { shellEnv } from '../engines/shell-env.js';
 import { VoiceSession } from '../voice/session.js';
 import { Player } from '../voice/player.js';
 import { Mic } from '../voice/mic.js';
-import { SarvamStt, SarvamTts, SonioxStt, SonioxTts } from '../voice/cloud.js';
-import { LocalKokoro, LocalVoiceWorker, LocalWhisper } from '../voice/local/client.js';
+import { ElevenLabsTts, SarvamStt, SarvamTts, SonioxStt, SonioxTts } from '../voice/cloud.js';
+import { LocalVoiceWorker, LocalWhisper } from '../voice/local/client.js';
+import { SystemTts } from '../voice/system.js';
 import { cacheRoot, ensureWasm } from '../voice/local/runtime.js';
+import { removeOldKokoroModels } from '../voice/local/cleanup.js';
+import { createLogger } from '../utils/logger.js';
 import type { Http } from '../voice/http.js';
 import type { SpeechToText, TextToSpeech } from '../voice/types.js';
 import { Transcript } from './transcript.js';
@@ -25,8 +28,6 @@ import { DEFAULT_SETTINGS, VoiceAgentSettingTab, mergeSettings, parseExtraArgs, 
 
 declare const ORT_WASM_SHA256: string;
 declare const TRANSFORMERS_VERSION: string;
-
-const KOKORO_MODEL = 'onnx-community/Kokoro-82M-v1.0-ONNX';
 
 export default class VoiceAgentPlugin extends Plugin {
   settings: VoiceAgentSettings = DEFAULT_SETTINGS;
@@ -69,7 +70,14 @@ export default class VoiceAgentPlugin extends Plugin {
 
     // Engine lookup and agent start can take a moment (login shell, files):
     // do it once the workspace is ready so Obsidian's startup is not delayed.
-    this.app.workspace.onLayoutReady(() => void this.startAgent());
+    this.app.workspace.onLayoutReady(() => {
+      void this.startAgent();
+      // Free the space Kokoro (0.1.x) used; harmless when there is nothing to remove.
+      removeOldKokoroModels().then(
+        (n) => { if (n) createLogger('voice').info(`Removed ${n} old Kokoro model files from the cache`); },
+        () => undefined,
+      );
+    });
   }
 
   onunload(): void {
@@ -227,7 +235,10 @@ export default class VoiceAgentPlugin extends Plugin {
     try {
       switch (s.tts) {
         case 'off': return null;
-        case 'local': return new LocalKokoro(this.worker(), KOKORO_MODEL, s.localVoice, s.localSpeed);
+        case 'system': return new SystemTts(s.systemVoice, s.speechRate);
+        case 'elevenlabs': return new ElevenLabsTts(this.http, this.secret(s.elevenlabsSecret, 'ElevenLabs'), {
+          voice: s.elevenlabsVoice, model: s.elevenlabsModel,
+        });
         case 'sarvam': return new SarvamTts(this.http, this.secret(s.sarvamSecret, 'Sarvam'), {
           model: s.sarvamTtsModel, speaker: s.sarvamTtsSpeaker || undefined, language: s.sarvamTtsLanguage,
         });
@@ -246,7 +257,7 @@ export default class VoiceAgentPlugin extends Plugin {
   private warmed = false;
 
   private rebuildVoice(): void {
-    if (this.settings.stt !== 'local' && this.settings.tts !== 'local') {
+    if (this.settings.stt !== 'local') {
       this.localWorker?.dispose();
       this.localWorker = undefined;
     }
@@ -310,6 +321,19 @@ export default class VoiceAgentPlugin extends Plugin {
 
   interrupt(): void {
     this.session?.interrupt();
+  }
+
+  /** Speaks a sample sentence with the current voice (settings, Test voice). */
+  async previewVoice(): Promise<void> {
+    const tts = this.tts ?? this.buildTts();
+    if (!tts) return;
+    const name = this.settings.agentName || 'your voice agent';
+    try {
+      this.player.stop();
+      await this.player.enqueue(tts.synthesize(`Hi, I'm ${name}. This is how I sound.`));
+    } catch (err) {
+      new Notice(`Voice test failed: ${(err as Error).message}`);
+    }
   }
 
   async newConversation(): Promise<void> {
