@@ -6,6 +6,9 @@
 // files come in through the init message (see runtime.ts); models download
 // from Hugging Face on first use and are cached by the browser.
 
+// Must stay the first import: it hides Obsidian's Node globals before the
+// libraries below check for them.
+import { nodeGlobalsLeft } from './hide-node.js';
 import { env, pipeline } from '@huggingface/transformers';
 import { KokoroTTS } from 'kokoro-js';
 
@@ -74,7 +77,11 @@ async function handle(msg: WorkerRequest): Promise<void> {
         env.allowLocalModels = false;
         env.useBrowserCache = true;
         {
-          const onnx = env.backends.onnx as { wasm: { wasmPaths?: unknown; numThreads?: number } };
+          const onnx = env.backends.onnx as { wasm?: { wasmPaths?: unknown; numThreads?: number } } | undefined;
+          if (!onnx?.wasm) {
+            const left = nodeGlobalsLeft.length ? ` (Node globals still present: ${nodeGlobalsLeft.join(', ')})` : '';
+            throw new Error(`The ONNX runtime did not load in the voice worker${left}.`);
+          }
           onnx.wasm.wasmPaths = msg.wasm;
           onnx.wasm.numThreads = 1;
         }

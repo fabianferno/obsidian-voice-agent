@@ -1,7 +1,7 @@
 {
   "id": "voice-agent",
   "name": "Voice Agent",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "minAppVersion": "1.11.4",
   "description": "Talk to your vault. A voice agent powered by Claude Code, Codex or Antigravity, with briefings and kanban check-ins. Local speech by default.",
   "author": "Fabian Ferno",

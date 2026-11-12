@@ -1,6 +1,6 @@
 {
   "name": "obsidian-voice-agent",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Talk to your Obsidian vault. A voice agent powered by Claude Code, Codex or Antigravity, with briefings and kanban check-ins.",
   "private": true,
   "type": "module",

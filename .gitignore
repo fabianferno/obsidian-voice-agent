@@ -5,3 +5,4 @@ main.js
 .env
 .DS_Store
 data.json
+.gstack/
