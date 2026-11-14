@@ -104,6 +104,25 @@
   margin-top: 2px;
 }
 .va-typing { animation: va-pulse 1.4s ease-in-out infinite; }
+.va-changes { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 6px; }
+.va-change {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 1px 8px;
+  border-radius: var(--radius-s);
+  background: var(--background-modifier-hover);
+  color: var(--text-muted);
+  font-size: var(--font-ui-smaller);
+  text-decoration: none;
+}
+a.va-change { cursor: pointer; }
+a.va-change:hover { color: var(--text-normal); background: var(--background-modifier-active-hover); }
+.va-change-icon { display: inline-flex; }
+.va-change-icon svg { width: 12px; height: 12px; }
+.va-change-created .va-change-icon, .va-change-moved .va-change-icon { color: var(--color-green); }
+.va-change-asked .va-change-icon { color: var(--color-yellow); }
+.va-change-trashed .va-change-icon, .va-change-deleted .va-change-icon { color: var(--text-error); }
 .va-error-text { font-size: var(--font-ui-smaller); color: var(--text-error); margin-top: 4px; white-space: pre-wrap; }
 
 @keyframes va-pulse { 50% { opacity: 0.45; } }

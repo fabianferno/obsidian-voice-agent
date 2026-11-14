@@ -94,5 +94,9 @@ describe('antigravity', () => {
     const settings = JSON.parse(args[args.indexOf('--settings') + 1]!);
     expect(settings.permissions.allow).toContain('command(find)');
     expect(antigravityArgs({ ...opts, permissions: 'full' }, 'hi')).not.toContain('--settings');
+    const ro = antigravityArgs({ ...opts, permissions: 'full', readOnly: true }, 'hi');
+    expect(ro).not.toContain('accept-edits');
+    expect(ro).not.toContain('--dangerously-skip-permissions');
+    expect(codexArgs({ ...opts, permissions: 'full', readOnly: true }, 'hi')).toContain('sandbox_mode="read-only"');
   });
 });

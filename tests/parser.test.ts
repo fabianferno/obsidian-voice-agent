@@ -147,6 +147,17 @@ describe('parseFrontmatter', () => {
     const fm = parseFrontmatter('# Just a heading');
     expect(fm.tags).toEqual([]);
   });
+
+  it('reads YAML block lists and aliases', () => {
+    const content = `---\ntags:\n  - people\n  - "on/art"\naliases:\n  - Caleb\nlocation:\n  - chennai\n---\n# Caleb`;
+    const fm = parseFrontmatter(content);
+    expect(fm.tags).toEqual(['people', 'on/art']);
+    expect(fm.aliases).toEqual(['Caleb']);
+  });
+
+  it('reads a comma list and an empty key', () => {
+    expect(parseFrontmatter(`---\ntags: people, #friend\naliases:\n---\n`)).toMatchObject({ tags: ['people', 'friend'], aliases: [] });
+  });
 });
 
 describe('isValidAction', () => {

@@ -10,8 +10,11 @@ import type { Store } from '../store/store.js';
 import { mutateKanban, appendMemoryEntry, updateCardDeadlineByTitle } from '../vault/writer.js';
 import { handlePersonMention } from '../journal/people.js';
 import { handleLiteratureMention } from '../journal/literature.js';
+import { captureToNote } from '../journal/capture.js';
 import { applyConfigEdit, describeEdit, GATED_FILES } from '../config/editor.js';
-import { agentDir } from '../config/paths.js';
+import path from 'path';
+import { agentDir, getLayout } from '../config/paths.js';
+import type { NoteChange } from './changes.js';
 import { createLogger } from '../utils/logger.js';
 
 const logger = createLogger('actions');
@@ -47,10 +50,15 @@ export async function executeVaultActions(
   vaultPath: string,
   store: Store,
   actions: VaultAction[],
+  onChange: (change: NoteChange) => void = () => undefined,
 ): Promise<ActionResult[]> {
   const results: ActionResult[] = [];
   const fail = (text: string) => results.push({ text, ok: false });
   const done = (text: string) => results.push({ text, ok: true });
+  const rel = (file: string) => path.relative(vaultPath, file).split(path.sep).join('/');
+  const board = () => onChange({ kind: 'updated', path: getLayout().boardPath });
+  const captured = (r: { action: 'appended' | 'created'; filePath: string }) =>
+    onChange({ kind: r.action === 'created' ? 'created' : 'updated', path: rel(r.filePath) });
 
   for (const action of actions) {
     try {
@@ -58,30 +66,42 @@ export async function executeVaultActions(
         case 'move_task': {
           const changed = mutateKanban(vaultPath, [{ type: 'move', task: action.task, fromColumn: action.from, toColumn: action.to }]);
           if (!changed) fail(`I couldn't find "${action.task}" on the board, so nothing moved.`);
+          else board();
           break;
         }
         case 'complete_task': {
           const changed = mutateKanban(vaultPath, [{ type: 'move', task: action.task, fromColumn: action.from, toColumn: 'Done' }]);
           if (!changed) fail(`I couldn't find "${action.task}" on the board, so nothing was marked done.`);
+          else board();
           break;
         }
         case 'add_task':
-          mutateKanban(vaultPath, [{ type: 'add', task: action.text, toColumn: action.column }]);
+          if (mutateKanban(vaultPath, [{ type: 'add', task: action.text, toColumn: action.column }])) board();
           break;
         case 'reschedule_task': {
           const moved = updateCardDeadlineByTitle(vaultPath, action.task, action.newDate);
-          if (moved) done(`Moved "${action.task}" to ${action.newDate}.`);
+          if (moved) {
+            done(`Moved "${action.task}" to ${action.newDate}.`);
+            board();
+          }
           else fail(`I couldn't find "${action.task}" on the board, so nothing moved.`);
           break;
         }
+        case 'note': {
+          const res = captureToNote(vaultPath, { title: action.title, noteType: action.noteType, text: action.text });
+          logger.info(`Captured to ${res.filePath} (${res.action})`);
+          captured(res);
+          break;
+        }
         case 'people_note':
-          handlePersonMention(action.name, action.note, vaultPath);
+          captured(handlePersonMention(action.name, action.note, vaultPath));
           break;
         case 'literature_note':
-          handleLiteratureMention(action.title, action.noteType, action.source, action.note, vaultPath);
+          captured(handleLiteratureMention(action.title, action.noteType, action.source, action.note, vaultPath));
           break;
         case 'update_memory':
           appendMemoryEntry(vaultPath, action.observation);
+          onChange({ kind: 'updated', path: `${getLayout().agentFolder}/memory.md` });
           break;
         case 'propose_config_edit': {
           // Writes nothing: stash it. The next turn's context carries the
@@ -114,7 +134,10 @@ export async function executeVaultActions(
           }
           const result = applyConfigEdit(agentDir(vaultPath), pending.edit);
           await store.setSessionState(PENDING_EDIT_KEY, '');
-          if (result.ok) done(`Done. ${pending.edit.file} updated.`);
+          if (result.ok) {
+            done(`Done. ${pending.edit.file} updated.`);
+            onChange({ kind: 'updated', path: `${getLayout().agentFolder}/${pending.edit.file}` });
+          }
           else fail(`I couldn't make that change: ${result.reason}`);
           break;
         }

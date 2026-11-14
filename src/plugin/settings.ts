@@ -225,6 +225,20 @@ export class VoiceAgentSettingTab extends PluginSettingTab {
     this.toggle(containerEl, 'Nudges between check-ins', 'Short adaptive nudges. Quiet hours and the pulse interval come from user.md.', 'pulses', { restartAgent: true });
     this.toggle(containerEl, 'Weather', 'Adds local weather to briefings (open-meteo, no key). Needs Coordinates in user.md.', 'weather', { restartAgent: true });
 
+    // --- second brain ---
+    new Setting(containerEl).setName('Second brain').setHeading();
+    this.toggle(containerEl, 'File things from conversations', 'People, projects, your own ideas and decisions you mention get a dated line in their note, or a new note in the capture folder.', 'capture', { restartAgent: true });
+    this.toggle(containerEl, 'Tend capture notes daily', 'Once a day the agent tidies ready notes in the capture folder and moves them to the notes folder, or leaves a question inside the note. Your words are never rewritten.', 'graduate', { restartAgent: true });
+    new Setting(containerEl)
+      .setName('Notes per day')
+      .setDesc('How many capture notes the daily pass works on. Each one is a turn of your engine. The /graduate command runs a pass now.')
+      .addText(t => t.setPlaceholder('5').setValue(String(s.graduatePerDay)).onChange(async v => {
+        const n = Number.parseInt(v, 10);
+        if (!Number.isFinite(n) || n < 1 || n > 50) return;
+        s.graduatePerDay = n;
+        await save({ restartAgent: true });
+      }));
+
     // --- vault layout ---
     new Setting(containerEl).setName('Vault layout').setHeading();
     const layoutText = (name: string, desc: string, key: keyof VaultLayout) =>
@@ -234,8 +248,8 @@ export class VoiceAgentSettingTab extends PluginSettingTab {
       }));
     layoutText('Kanban board', 'Path to your Kanban board note (Obsidian Kanban plugin format).', 'boardPath');
     layoutText('Agent folder', 'Where soul.md, identity.md, user.md, goals.md and memory.md live. Created on first run.', 'agentFolder');
-    layoutText('Capture folder', 'Quick notes older than 48 hours get a triage nudge. Empty turns this off.', 'captureFolder');
-    layoutText('Notes folder', 'Where people and literature notes are written.', 'notesFolder');
+    layoutText('Capture folder', 'Quick capture. New notes start here; the daily pass moves them to the notes folder when they are ready. Empty turns the pass off.', 'captureFolder');
+    layoutText('Notes folder', 'Where finished notes go.', 'notesFolder');
     layoutText('Daily notes folder', 'The agent never reads or writes here.', 'dailyFolder');
   }
 

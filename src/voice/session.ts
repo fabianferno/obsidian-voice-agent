@@ -11,6 +11,7 @@ import { EnergyVad, type VadOptions } from './vad.js';
 import { SentenceChunker } from '../speech/chunker.js';
 import { cleanForSpeech, hasSpeakableText } from '../speech/clean.js';
 import type { ReplyHandlers, TurnOutcome } from '../agent/agent.js';
+import type { NoteChange } from '../agent/changes.js';
 
 export type VoiceState = 'idle' | 'listening' | 'hearing' | 'transcribing' | 'thinking' | 'speaking';
 
@@ -37,6 +38,8 @@ export interface VoiceUi {
 export interface AgentMessageHandle {
   append(text: string): void;
   status(text: string): void;
+  /** A note or file the message's turn touched. Shown, never spoken. */
+  change(change: NoteChange): void;
   end(opts?: { error?: string; interrupted?: boolean }): void;
 }
 
@@ -173,11 +176,12 @@ export class VoiceSession {
   }
 
   /** Shows (and maybe speaks) a message the agent started on its own. */
-  async proactive(text: string, source: string): Promise<void> {
+  async proactive(text: string, source: string, extra: { changes?: NoteChange[]; speak?: boolean } = {}): Promise<void> {
     const handle = this.ui.agentStart('proactive', source);
     handle.append(text);
+    for (const c of extra.changes ?? []) handle.change(c);
     handle.end();
-    if (this.opts.speak && this.opts.speakProactive && this.tts) {
+    if (extra.speak !== false && this.opts.speak && this.opts.speakProactive && this.tts) {
       const speaker = this.makeSpeaker(() => true);
       const chunker = new SentenceChunker();
       for (const piece of chunker.push(text)) speaker.say(piece);
@@ -254,6 +258,7 @@ export class VoiceSession {
           for (const piece of chunker.push(delta)) speaker.say(piece);
         },
         onStatus: (s) => { if (alive()) handle.status(s); },
+        onChange: (c) => { if (alive()) handle.change(c); },
       });
     } catch (err) {
       outcome = { text: '', actions: [], interrupted: false, error: errMessage(err) };

@@ -156,7 +156,7 @@ describe('VoiceSession', () => {
       user: (t, spoken) => log.push(`user${spoken ? '(voice)' : ''}: ${t}`),
       agentStart: (kind) => {
         let text = '';
-        return { append: (t) => { text += t; }, status: () => undefined, end: (o) => log.push(`${kind}: ${text}${o?.error ? ` [error ${o.error}]` : ''}`) };
+        return { append: (t) => { text += t; }, status: () => undefined, change: () => undefined, end: (o) => log.push(`${kind}: ${text}${o?.error ? ` [error ${o.error}]` : ''}`) };
       },
       error: (m) => log.push(`error: ${m}`),
     };

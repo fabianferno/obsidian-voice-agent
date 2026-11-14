@@ -30,3 +30,15 @@ describe('buildTurn board section', () => {
     expect(text).not.toContain('- To Do: 0 (empty)');
   });
 });
+
+describe('buildTurn second brain report', () => {
+  it('tells the engine what the note pass did', () => {
+    const text = buildTurn('morning_checkpoint', config, context(vault), [], {
+      secondBrain: { moved: ['Maria B', 'Electra'], asked: 2, trashed: [], waiting: 110 },
+    });
+    expect(text).toContain('# Second brain');
+    expect(text).toContain('- Moved to notes: Maria B, Electra');
+    expect(text).toContain('- New questions left inside notes: 2');
+    expect(text).toContain("- Notes waiting on the user's answer: 110");
+  });
+});

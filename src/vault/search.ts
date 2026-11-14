@@ -152,18 +152,6 @@ export function searchByTag(vaultPath: string, tag: string): SearchResult[] {
   return results;
 }
 
-export function findPersonNote(vaultPath: string, name: string): SearchResult | null {
-  const byName = searchByName(vaultPath, name);
-  const withPeopleTag = byName.filter(r => r.tags.includes('people'));
-  return withPeopleTag[0] ?? null;
-}
-
-export function findLiteratureNote(vaultPath: string, title: string): SearchResult | null {
-  const byName = searchByName(vaultPath, title);
-  const withLitTag = byName.filter(r => r.tags.includes('literature'));
-  return withLitTag[0] ?? null;
-}
-
 function walkVault(dir: string, callback: (filePath: string) => void, root: string = dir): void {
   // Hidden folders (the Obsidian config folder, .trash, .git) are skipped below.
   const skipDirs = ['node_modules', 'dist'];

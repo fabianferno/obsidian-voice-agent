@@ -1,12 +1,13 @@
 // plugin/main.ts - the Obsidian plugin: wires the agent, the engine, voice and the panel.
 
-import { FileSystemAdapter, Notice, Platform, Plugin, requestUrl } from 'obsidian';
+import { FileSystemAdapter, Notice, Platform, Plugin, TFile, requestUrl } from 'obsidian';
 import { createHash } from 'crypto';
 import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from 'fs';
 import path from 'path';
 import WORKER_SOURCE from 'virtual:voice-worker';
 import ORT_GLUE from 'virtual:ort-glue';
 import { Agent, type AgentSettings } from '../agent/agent.js';
+import type { VaultOps } from '../agent/graduation.js';
 import { Store, type StoreData } from '../store/store.js';
 import { boardFile, getLayout, setLayout, setVaultPath } from '../config/paths.js';
 import { checkEngine, createEngine, ENGINE_INFO, type EngineSession } from '../engines/index.js';
@@ -74,6 +75,10 @@ export default class VoiceAgentPlugin extends Plugin {
       if (!existsSync(boardFile(this.vaultPath))) {
         new Notice(`Voice agent: no Kanban board at "${getLayout().boardPath}". Set the board path in the plugin settings.`, 15000);
       }
+      const { dailyFolder } = getLayout();
+      if (dailyFolder && !existsSync(path.join(this.vaultPath, dailyFolder))) {
+        new Notice(`Voice agent: no daily notes folder at "${dailyFolder}", so the agent cannot keep out of your daily notes. Fix it in the plugin settings.`, 15000);
+      }
       void this.startAgent();
       // Free the space Kokoro (0.1.x) used; harmless when there is nothing to remove.
       removeOldKokoroModels().then(
@@ -132,12 +137,32 @@ export default class VoiceAgentPlugin extends Plugin {
       greetOnOpen: s.greetOnOpen,
       pulses: s.pulses,
       weather: s.weather,
+      capture: s.capture,
+      graduate: s.graduate,
+      graduatePerDay: s.graduatePerDay,
+    };
+  }
+
+  /** Moves and deletions through Obsidian, so links follow a moved note and deletions use the trash. */
+  private vaultOps(): VaultOps {
+    const file = (rel: string): TFile => {
+      const f = this.app.vault.getAbstractFileByPath(rel);
+      if (!(f instanceof TFile)) throw new Error(`No note at ${rel}`);
+      return f;
+    };
+    return {
+      move: async (from, to) => {
+        const folder = path.posix.dirname(to);
+        if (folder !== '.' && !this.app.vault.getAbstractFileByPath(folder)) await this.app.vault.createFolder(folder);
+        await this.app.fileManager.renameFile(file(from), to);
+      },
+      trash: async (rel) => this.app.fileManager.trashFile(file(rel)),
     };
   }
 
   private engineFactory() {
     const s = this.settings;
-    return (systemPrompt: string): EngineSession => createEngine(s.engine, {
+    return (systemPrompt: string, opts: { readOnly?: boolean } = {}): EngineSession => createEngine(s.engine, {
       bin: s.engineBin[s.engine] || ENGINE_INFO[s.engine].bin,
       cwd: this.vaultPath,
       model: s.model || undefined,
@@ -146,7 +171,8 @@ export default class VoiceAgentPlugin extends Plugin {
       systemPrompt,
       env: this.env,
       denyPaths: [s.layout.dailyFolder],
-      protectPaths: [s.layout.boardPath, s.layout.agentFolder],
+      protectPaths: [getLayout().boardPath, s.layout.agentFolder],
+      readOnly: opts.readOnly,
     });
   }
 
@@ -160,8 +186,8 @@ export default class VoiceAgentPlugin extends Plugin {
       );
       this.rebuildVoice();
       this.agent = new Agent(this.vaultPath, this.store, this.engineFactory(), this.agentSettings(), (m) => {
-        void this.session?.proactive(m.text, m.source);
-      });
+        void this.session?.proactive(m.text, m.source, { changes: m.changes, speak: m.speak });
+      }, this.http, this.vaultOps());
       await this.agent.start();
     } catch (err) {
       console.error('[voice-agent] Failed to start', err);

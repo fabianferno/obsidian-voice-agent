@@ -44,6 +44,8 @@ export function setLayout(next: Partial<VaultLayout>): void {
     Object.entries(next).filter(([, v]) => typeof v === 'string'),
   ) as Partial<VaultLayout>;
   layout = { ...DEFAULT_LAYOUT, ...clean };
+  // Obsidian shows note paths without the extension; "Boards/Inbox" means Boards/Inbox.md.
+  if (layout.boardPath && !/\.md$/i.test(layout.boardPath)) layout.boardPath += '.md';
 }
 
 export function getLayout(): VaultLayout {

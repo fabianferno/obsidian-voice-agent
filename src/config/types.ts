@@ -174,6 +174,7 @@ export type VaultAction =
   | { type: 'move_task'; task: string; from: string; to: string }
   | { type: 'complete_task'; task: string; from: string }
   | { type: 'add_task'; text: string; column: string }
+  | { type: 'note'; title: string; noteType: string; text: string }
   | { type: 'people_note'; name: string; note: string }
   | { type: 'literature_note'; title: string; noteType: string; source: string; note: string }
   | { type: 'update_memory'; observation: string }
@@ -242,18 +243,6 @@ export interface StoredMessage {
 }
 
 // === Health Payload ===
-
-// === Synapse Types ===
-
-export interface SynapseItem {
-  filePath: string;
-  fileName: string;
-  createdDate: Date;
-  modifiedDate: Date;
-  ageHours: number;
-  content: string;
-  wordCount: number;
-}
 
 // === Adaptive Config ===
 

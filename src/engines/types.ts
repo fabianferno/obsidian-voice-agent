@@ -2,7 +2,9 @@ export type EngineEvent =
   /** Words the agent is saying. Streamed; spoken aloud and shown in the transcript. */
   | { type: 'text'; text: string }
   /** What the agent is doing (reading a note, running a command). Shown, not spoken. */
-  | { type: 'status'; text: string };
+  | { type: 'status'; text: string }
+  /** The agent is writing or editing a file with its own tools. `kind` when the engine says. */
+  | { type: 'file'; path: string; kind?: 'created' | 'updated' | 'deleted' };
 
 export interface TurnResult {
   /** True when the turn was cut short by interrupt(). */
@@ -39,4 +41,7 @@ export interface EngineOptions {
   denyPaths?: string[];
   /** Vault-relative paths the engine must not edit directly (board, agent folder). */
   protectPaths?: string[];
+  /** Read and search only: no file edits or shell commands, whatever `permissions` says.
+   * Used for background work whose writes go through agent actions instead. */
+  readOnly?: boolean;
 }

@@ -3,6 +3,8 @@ import type { EngineEvent, EngineOptions, EngineSession, TurnResult } from './ty
 import { captureStderr, describeTool, kill, readJsonLines } from './process.js';
 import { asArray, asObject, asString, type JsonObject } from '../utils/json.js';
 
+const WRITE_TOOLS = new Set(['Write', 'Edit', 'MultiEdit', 'NotebookEdit']);
+
 export interface ClaudeParseState {
   hadText: boolean;
 }
@@ -41,7 +43,11 @@ export function parseClaudeLine(obj: JsonObject, state: ClaudeParseState): Claud
     for (const item of asArray(asObject(obj.message).content)) {
       const block = asObject(item);
       if (block.type === 'tool_use') {
-        out.events.push({ type: 'status', text: describeTool(asString(block.name) ?? 'a tool', asObject(block.input)) });
+        const name = asString(block.name) ?? 'a tool';
+        const input = asObject(block.input);
+        out.events.push({ type: 'status', text: describeTool(name, input) });
+        const file = asString(input.file_path) ?? asString(input.notebook_path);
+        if (file && WRITE_TOOLS.has(name)) out.events.push({ type: 'file', path: file });
       }
     }
   } else if (obj.type === 'result') {
@@ -85,8 +91,12 @@ export function claudeArgs(opts: EngineOptions, resumeId?: string): string[] {
     '--append-system-prompt', opts.systemPrompt,
   ];
   const denied = claudeDeniedTools(opts);
+  if (opts.readOnly) denied.push('Edit', 'Write', 'NotebookEdit');
   if (denied.length) args.push('--disallowedTools', ...denied);
-  args.push(...(opts.permissions === 'full' ? ['--dangerously-skip-permissions'] : ['--permission-mode', 'acceptEdits']));
+  // Read-only: the default mode cannot ask for approval in print mode, so anything
+  // beyond reading and searching (shell commands included) is refused.
+  if (opts.readOnly) args.push('--permission-mode', 'default');
+  else args.push(...(opts.permissions === 'full' ? ['--dangerously-skip-permissions'] : ['--permission-mode', 'acceptEdits']));
   if (opts.model) args.push('--model', opts.model);
   if (resumeId) args.push('--resume', resumeId);
   args.push(...opts.extraArgs);

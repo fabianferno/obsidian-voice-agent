@@ -9,11 +9,13 @@ import { createHash, randomUUID } from 'crypto';
 import { asArray, asObject, parseJson } from '../utils/json.js';
 import type { Http } from '../voice/http.js';
 import { existsSync, readFileSync } from 'fs';
+import path from 'path';
+import { addChange, type NoteChange } from './changes.js';
 import type { AgentConfig, CheckinType, ContextData, VaultAction } from '../config/types.js';
 import type { Store } from '../store/store.js';
 import type { EngineSession } from '../engines/types.js';
 import { loadAgentConfig } from '../config/loader.js';
-import { agentDir, boardFile } from '../config/paths.js';
+import { agentDir, boardFile, getLayout } from '../config/paths.js';
 import { ensureAgentFiles } from '../config/templates.js';
 import { assembleContext } from '../context/provider.js';
 import { toIanaZone } from '../context/datetime.js';
@@ -31,7 +33,7 @@ import { checkGuard } from '../focus/guard.js';
 import { parseTimeEstimate } from '../focus/estimator.js';
 import { parseInboxKanban } from '../vault/parser.js';
 import { autoMoveCompletedToDone, clearColumns, countColumnCards, ensureCardIds, mutateKanban } from '../vault/writer.js';
-import { getStaleItems, scanSynapses } from '../vault/synapse-migration.js';
+import { Graduation, countWaiting, fsVaultOps, loadGraduationState, saveGraduationState, type GraduationResult, type VaultOps } from './graduation.js';
 import { createLogger } from '../utils/logger.js';
 
 const logger = createLogger('agent');
@@ -46,12 +48,22 @@ export interface AgentSettings {
   pulses: boolean;
   /** Weather in the context (open-meteo, needs coordinates in user.md). */
   weather: boolean;
+  /** File what is worth keeping from conversations into notes. */
+  capture: boolean;
+  /** Work through the capture folder once a day. */
+  graduate: boolean;
+  /** Notes handled per daily pass. */
+  graduatePerDay: number;
 }
 
 export interface AgentMessage {
   text: string;
   /** What produced it: 'checkpoint:morning', 'pulse', 'focus-nudge', ... */
   source: string;
+  /** Notes and files it touched, shown under the message. */
+  changes?: NoteChange[];
+  /** False for messages that are only shown, never read aloud. */
+  speak?: boolean;
 }
 
 export interface ReplyHandlers {
@@ -59,17 +71,21 @@ export interface ReplyHandlers {
   onText?(delta: string): void;
   /** What the engine is doing (reading a note...). Shown, not spoken. */
   onStatus?(text: string): void;
+  /** A note or file was created, edited or moved during the turn. Shown, not spoken. */
+  onChange?(change: NoteChange): void;
 }
 
 export interface TurnOutcome {
   text: string;
   actions: VaultAction[];
+  /** Notes and files the turn touched. */
+  changes?: NoteChange[];
   error?: string;
   interrupted: boolean;
 }
 
 /** Builds an engine conversation that starts with the given system prompt. */
-export type EngineFactory = (systemPrompt: string) => EngineSession;
+export type EngineFactory = (systemPrompt: string, opts?: { readOnly?: boolean }) => EngineSession;
 
 const DEDUP_MS = 10 * 60 * 1000;
 const GREETING_GAP_MS = 3 * 60 * 60 * 1000;
@@ -83,6 +99,9 @@ export class Agent {
   private stopCheckpoints?: () => void;
   private kanbanTimer?: number;
   private watchdogTimer?: number;
+  private graduationTimer?: number;
+  private graduationKickoff?: number;
+  private graduating = false;
   private lastDelivered = new Map<string, { text: string; at: number }>();
   private running = false;
   readonly focus: FocusTracker;
@@ -94,6 +113,7 @@ export class Agent {
     private settings: AgentSettings,
     private readonly deliver: (m: AgentMessage) => void,
     private readonly http?: Http,
+    private readonly vaultOps: VaultOps = fsVaultOps(vaultPath),
   ) {
     this.config = loadAgentConfig(agentDir(vaultPath));
     this.focus = new FocusTracker(store, (text, source) => this.notify(text, source ?? 'focus'), () => this.getContext());
@@ -119,6 +139,9 @@ export class Agent {
     this.stopCheckpoints = startCheckpoints(this.settings.checkpointTimes, (kind) => this.runCheckpoint(kind));
     this.startKanbanPoll();
     this.startWatchdog();
+    // The daily note pass: checked shortly after start (after any greeting) and hourly.
+    this.graduationKickoff = window.setTimeout(() => void this.maybeGraduate(), 2 * 60 * 1000);
+    this.graduationTimer = window.setInterval(() => void this.maybeGraduate(), 60 * 60 * 1000);
     if (this.settings.pulses) schedulePulse(this.config.userMeta.pulseIntervalMinutes, () => this.runPulse());
 
     // Catch up a checkpoint missed while Obsidian was closed, else greet.
@@ -140,7 +163,9 @@ export class Agent {
     this.stopCheckpoints = undefined;
     if (this.kanbanTimer) window.clearInterval(this.kanbanTimer);
     if (this.watchdogTimer) window.clearInterval(this.watchdogTimer);
-    this.kanbanTimer = this.watchdogTimer = undefined;
+    if (this.graduationTimer) window.clearInterval(this.graduationTimer);
+    if (this.graduationKickoff) window.clearTimeout(this.graduationKickoff);
+    this.kanbanTimer = this.watchdogTimer = this.graduationTimer = this.graduationKickoff = undefined;
     cancelPulse();
     this.focus.shutdown();
     this.engine?.close();
@@ -149,7 +174,7 @@ export class Agent {
 
   /** Apply new settings. Checkpoint timers are re-armed. */
   updateSettings(next: AgentSettings): void {
-    const nameChanged = next.agentName !== this.settings.agentName;
+    const nameChanged = next.agentName !== this.settings.agentName || next.capture !== this.settings.capture;
     this.settings = next;
     if (nameChanged) this.personaKey = '';
     if (this.running) {
@@ -192,25 +217,13 @@ export class Agent {
       return { text: local, actions: [], interrupted: false };
     }
 
-    let extra = '';
-    if ((await this.store.getSessionState('synapse_triage_pending')) === '1') {
-      await this.store.setSessionState('synapse_triage_pending', '');
-      if (/^(yes|y|sure|go|yeah|yep|ok|okay)\b/i.test(trimmed)) extra = this.triageInstructions();
-      else if (/^(no|n|nah|nope|skip|later|not now)\b/i.test(trimmed)) {
-        const reply = 'Got it, skipping triage for now.';
-        opts.onText?.(reply);
-        await this.record('outgoing', reply);
-        return { text: reply, actions: [], interrupted: false };
-      }
-    }
-
     await this.store.setSessionState('break_until', '');
     const outcome = await this.exclusive(async () => {
       const context = await this.getContext();
       const turn = buildTurn('reply', this.config, context, await this.signals(context), {
         activeSessions: await this.store.getActiveSessions(),
         pendingEdit: await getPendingConfigEdit(this.store),
-        userText: trimmed + extra,
+        userText: trimmed,
         spoken: opts.spoken,
         columns: this.readBoard()?.columnOrder,
       });
@@ -245,6 +258,15 @@ export class Agent {
       const paused = await this.isPaused();
       const sessions = await this.store.getActiveSessions();
       return `Agent ${paused ? 'paused' : 'running'}. Active focus sessions: ${sessions.length}.`;
+    }
+
+    if (lower === '/graduate') {
+      if (!getLayout().captureFolder) return 'Set a capture folder in the settings first.';
+      if (this.graduating) return 'Already working through your capture notes.';
+      void this.runGraduation().then(async (r) => {
+        if (r) await this.reportNotePass(r);
+      });
+      return `Working through up to ${Math.max(1, this.settings.graduatePerDay)} capture notes now. I'll tell you when it's done.`;
     }
 
     // Two-step board clear so a slip cannot wipe the board.
@@ -287,11 +309,59 @@ export class Agent {
     return null;
   }
 
-  private triageInstructions(): string {
-    const stale = getStaleItems(scanSynapses(this.vaultPath));
-    if (stale.length === 0) return '\n\n(Triage: there are no stale capture notes any more. Say so.)';
-    const list = stale.slice(0, 15).map(i => `- ${i.fileName} (${Math.round(i.ageHours / 24)}d old, ${i.wordCount} words)`).join('\n');
-    return `\n\n(The user agreed to triage stale capture notes. Go through them one at a time: say what each one is in a sentence and suggest keep, move to a proper note, turn into a card, or delete. Act on the user's answer before moving to the next. Ask before deleting anything.\n${list})`;
+  // --- the daily note pass ---
+
+  /** Runs the pass if it is on, has not run today, and now is a good time. */
+  private async maybeGraduate(): Promise<void> {
+    if (!this.running || !this.settings.graduate || !getLayout().captureFolder) return;
+    if (this.isQuietHours() || (await this.isPaused())) return;
+    const state = await loadGraduationState(this.store);
+    if (state.lastRun === localDate(new Date())) return;
+    const result = await this.runGraduation();
+    if (result?.changes.length) await this.reportNotePass(result);
+  }
+
+  /** Shows (not speaks) what a note pass did, with the touched notes linked. */
+  private async reportNotePass(r: GraduationResult): Promise<void> {
+    const parts = [
+      r.moved.length ? `moved ${r.moved.length} note${r.moved.length === 1 ? '' : 's'} to your notes folder` : '',
+      r.asked.length ? `left ${r.asked.length} question${r.asked.length === 1 ? '' : 's'} in notes` : '',
+      r.trashed.length ? `trashed ${r.trashed.length}` : '',
+      r.skipped.length ? `left ${r.skipped.length} as they were` : '',
+    ].filter(Boolean);
+    const text = parts.length ? `Note pass done: ${parts.join('; ')}.` : 'Note pass done: nothing needed attention.';
+    await this.notify(text, 'note-pass', { changes: r.changes, speak: false });
+  }
+
+  /** One pass over the capture folder. Public for the /graduate command and tests. */
+  async runGraduation(): Promise<GraduationResult | null> {
+    if (this.graduating) return null;
+    this.graduating = true;
+    try {
+      const pass = new Graduation(this.vaultPath, this.store, (prompt) => this.makeEngine(prompt, { readOnly: true }), this.vaultOps);
+      const result = await pass.run(Math.max(1, this.settings.graduatePerDay));
+      logger.info(`Note pass: ${result.moved.length} moved, ${result.asked.length} asked, ${result.trashed.length} trashed, ${result.skipped.length} left`);
+      return result;
+    } catch (err) {
+      logger.error('Note pass failed', err);
+      return null;
+    } finally {
+      this.graduating = false;
+    }
+  }
+
+  /** What the note pass did since the user was last told, or undefined when nothing. */
+  private async secondBrainReport() {
+    const state = await loadGraduationState(this.store);
+    const { moved, asked, trashed } = state.report;
+    if (!moved.length && !asked.length && !trashed.length) return undefined;
+    return { moved, asked: asked.length, trashed, waiting: countWaiting(this.vaultPath) };
+  }
+
+  private async clearSecondBrainReport(): Promise<void> {
+    const state = await loadGraduationState(this.store);
+    state.report = { moved: [], asked: [], trashed: [] };
+    await saveGraduationState(this.store, state);
   }
 
   // --- engine turns ---
@@ -305,11 +375,11 @@ export class Agent {
 
   private ensureEngine(): EngineSession {
     const c = this.config;
-    const key = createHash('sha1').update([c.soul, c.identity, c.user, c.goals, this.settings.agentName].join('\0')).digest('hex');
+    const key = createHash('sha1').update([c.soul, c.identity, c.user, c.goals, this.settings.agentName, String(this.settings.capture)].join('\0')).digest('hex');
     if (!this.engine || key !== this.personaKey) {
       // Personality changed (or first turn): start a conversation with the new prompt.
       this.engine?.close();
-      this.engine = this.makeEngine(buildSystemPrompt(c, { agentName: this.settings.agentName }));
+      this.engine = this.makeEngine(buildSystemPrompt(c, { agentName: this.settings.agentName, capture: this.settings.capture }));
       this.personaKey = key;
     }
     return this.engine;
@@ -319,8 +389,19 @@ export class Agent {
     const engine = this.ensureEngine();
     const filter = new ActionStreamFilter();
     let raw = '';
+    let changes: NoteChange[] = [];
+    const record = (c: NoteChange) => {
+      changes = addChange(changes, c);
+      handlers.onChange?.(c);
+    };
     const result = await engine.turn(prompt, (e) => {
       if (e.type === 'status') return handlers.onStatus?.(e.text);
+      if (e.type === 'file') {
+        const abs = path.isAbsolute(e.path) ? e.path : path.join(this.vaultPath, e.path);
+        // Reported before the tool runs: a file that is not there yet is being created.
+        record({ kind: e.kind ?? (existsSync(abs) ? 'updated' : 'created'), path: path.relative(this.vaultPath, abs).split(path.sep).join('/') });
+        return;
+      }
       raw += e.text;
       const visible = filter.push(e.text);
       if (visible) handlers.onText?.(visible);
@@ -328,7 +409,7 @@ export class Agent {
     const tail = filter.flush();
     if (tail) handlers.onText?.(tail);
 
-    if (result.interrupted) return { text: parseAgentReply(raw).message, actions: [], interrupted: true };
+    if (result.interrupted) return { text: parseAgentReply(raw).message, actions: [], changes, interrupted: true };
     if (result.error) {
       logger.error('Engine turn failed', result.error);
       return { text: '', actions: [], interrupted: false, error: result.error };
@@ -338,7 +419,7 @@ export class Agent {
     if (parsed.rejected.length) logger.warn('Rejected actions', parsed.rejected);
     let text = parsed.message;
     if (parsed.vaultActions.length) {
-      const results = await executeVaultActions(this.vaultPath, this.store, parsed.vaultActions);
+      const results = await executeVaultActions(this.vaultPath, this.store, parsed.vaultActions, record);
       this.config = loadAgentConfig(agentDir(this.vaultPath));
       // The engine already says what it did; only failures are added. When it
       // said nothing, describe the actions so the change is not silent.
@@ -351,13 +432,14 @@ export class Agent {
         text = [text, addition].filter(Boolean).join('\n');
       }
     }
-    return { text, actions: parsed.vaultActions, interrupted: false };
+    return { text, actions: parsed.vaultActions, changes, interrupted: false };
   }
 
   /** A check-in the agent starts: build the turn, run it, deliver the result. */
   private async runProactive(kind: Exclude<CheckinType, 'reply'>, source: string): Promise<string | null> {
     if (!this.running || (await this.isPaused())) return null;
     try {
+      const report = kind === 'morning_checkpoint' || kind === 'startup' ? await this.secondBrainReport() : undefined;
       const outcome = await this.exclusive(async () => {
         const context = await this.getContext();
         const midnight = new Date();
@@ -367,11 +449,13 @@ export class Agent {
           completedToday: await this.store.getCompletedSessions(midnight.toISOString()),
           pendingEdit: await getPendingConfigEdit(this.store),
           columns: this.readBoard()?.columnOrder,
+          secondBrain: report,
         });
         return this.runEngineTurn(turn);
       });
       if (outcome.error || !outcome.text) return null;
-      await this.notify(outcome.text, source);
+      if (report) await this.clearSecondBrainReport();
+      await this.notify(outcome.text, source, { changes: outcome.changes });
       return outcome.text;
     } catch (err) {
       logger.error(`${kind} failed`, err);
@@ -384,14 +468,6 @@ export class Agent {
     runs[kind] = localDate(new Date());
     await this.store.setSessionState('checkpoint_last_run', JSON.stringify(runs));
     await this.runProactive(kind, `checkpoint:${kind.replace('_checkpoint', '')}`);
-
-    if (kind === 'morning_checkpoint') {
-      const stale = getStaleItems(scanSynapses(this.vaultPath));
-      if (stale.length > 0) {
-        await this.store.setSessionState('synapse_triage_pending', '1');
-        await this.notify(`You have ${stale.length} capture note${stale.length > 1 ? 's' : ''} older than 48 hours. Want to triage them?`, 'synapse-scan');
-      }
-    }
   }
 
   private async runPulse(): Promise<void> {
@@ -417,14 +493,14 @@ export class Agent {
   // --- delivery ---
 
   /** Shows (and speaks) a message the agent starts. Same text from the same source within 10 minutes is dropped. */
-  private async notify(text: string, source: string): Promise<void> {
+  private async notify(text: string, source: string, extra: { changes?: NoteChange[]; speak?: boolean } = {}): Promise<void> {
     const clean = text.trim();
     if (!clean || !this.running) return;
     const prev = this.lastDelivered.get(source);
     if (prev && prev.text === clean && Date.now() - prev.at < DEDUP_MS) return;
     this.lastDelivered.set(source, { text: clean, at: Date.now() });
     await this.record('outgoing', clean);
-    this.deliver({ text: clean, source });
+    this.deliver({ text: clean, source, ...(extra.changes?.length ? { changes: extra.changes } : {}), ...(extra.speak === false ? { speak: false } : {}) });
   }
 
   private async record(direction: 'incoming' | 'outgoing', text: string, spoken = false): Promise<void> {

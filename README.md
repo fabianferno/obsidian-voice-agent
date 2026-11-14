@@ -12,8 +12,14 @@ let it brief you in the morning and wind you down in the evening.
   ships): free, private, instant, no key. ElevenLabs, Sarvam and Soniox are optional cloud
   voices if you want a more natural voice or Indian languages.
 - **An accountability partner, not just a chat box.** A personality you can edit, morning,
-  midday and evening check-ins, gentle nudges in between, focus tracking on your kanban
-  "Doing" column, and a 48-hour triage nudge for quick-capture notes.
+  midday and evening check-ins, gentle nudges in between, and focus tracking on your kanban
+  "Doing" column.
+- **A second brain that tends itself.** What you mention in conversation gets filed: a dated
+  line in the person's or project's note, or a new note in your capture folder. Once a day the
+  agent works through the capture folder: it tidies a ready note and moves it to your notes
+  folder, or leaves one question inside the note for you to answer. Your own words are never
+  rewritten (a rewrite that drops any of your lines is refused), facts come only from your
+  vault, and every move keeps your links working.
 
 Desktop only (macOS, Windows, Linux). Early release (0.2.0): expect rough edges, and please
 [open an issue](https://github.com/fabianferno/obsidian-voice-agent/issues) when something
@@ -78,9 +84,10 @@ ways:
 1. Open **Settings, Voice Agent**. Pick your engine and press **Check** to confirm Obsidian can
    find it. If it cannot (common when Obsidian is opened from the Dock), paste the full path,
    for example the output of `which claude` in a terminal.
-2. Set your **Vault layout**: where your kanban board is, and which folders hold quick
-   captures, people/literature notes and daily notes. The defaults are `Kanban.md`, `Inbox/`,
-   `Notes/` and `Daily/`; change them to match your vault.
+2. Set your **Vault layout**: where your kanban board is, your quick-capture folder, the folder
+   finished notes move to, and your daily notes. The defaults are `Kanban.md`, `Inbox/`,
+   `Notes/` and `Daily/`; change them to match your vault. If the board path is wrong the
+   plugin tells you, instead of reporting an empty board.
 3. Open the panel with the microphone ribbon icon, or the command **Voice Agent: Open panel**.
 4. Bind a hotkey to **Voice Agent: Talk (start or stop listening)** in Settings, Hotkeys.
 
@@ -111,7 +118,7 @@ Updating from 0.1.x: the old Kokoro voice model is deleted from the cache automa
 - **Type** in the box at the bottom instead of talking.
 - `/pause` and `/resume` turn check-ins off and on. `/clear` starts a fresh conversation.
   `/status` shows whether the agent is paused. `/clearboard` empties Done and Archive (asks
-  first).
+  first). `/graduate` runs the daily note pass now.
 
 Things to try: "What should I work on?", "Add call the bank to To Do", "Push the gym card to
 Friday", "I'm done with the intro", "What do I know about Priya?", "From now on, never use
@@ -121,11 +128,35 @@ emoji with me".
 
 | When | What |
 | --- | --- |
-| Morning (08:00) | Top priorities for the day, weather, parked tasks. Then a triage nudge for stale captures. |
+| Morning (08:00) | Top priorities for the day, weather, parked tasks, and what the note pass moved. |
 | Midday (13:00) | Progress check on the morning plan. |
 | Evening (20:00) | What got done, one question about the day. |
 | In between | Short adaptive nudges. More often with deadlines, less when you are busy or ignoring them. |
 | Board changes | A card moved into Doing starts a focus session ("how long will it take?"). Finishing, parking or abandoning it is noticed. A card stuck in Doing for 7 days goes back to Backlog. |
+
+## Your notes
+
+- **Filing while you talk.** People and projects you talk about with specifics, your own ideas
+  (in your exact words), decisions and commitments are filed in the same reply. An existing
+  note, found by name or alias in any folder, gets a line like
+  `- **2026-11-14** | moving to Bangalore [Source: voice chat]` under `## Timeline`. Anything
+  new becomes a note in the capture folder with one type tag. Turn this off with **File things
+  from conversations**.
+- **The daily note pass.** Once a day while Obsidian is open (outside quiet hours), the agent
+  looks at up to five capture notes (**Notes per day**): first notes where you answered its
+  question, then notes nobody has edited for 48 hours. For each it either
+  - moves a ready note to the notes folder, with a short summary under the title, your text
+    untouched, and a Timeline of facts it found in other notes, each with its source;
+  - or leaves one question in a callout under the title. Answer by writing anything in the
+    note; the next pass picks it up;
+  - or, for an empty or duplicate note, asks whether to delete it, and only after your yes
+    moves it to Obsidian's trash.
+  It runs in its own read-only engine session, separate from your conversation; the plugin
+  checks and writes every change. Each action is logged in `log.md` in the agent folder.
+- **You always see what changed.** Every note or file a reply or a note pass creates, edits,
+  moves or trashes shows up as a small chip under the message in the panel ("Created Ambition
+  debt", "Updated Kanban", "Moved Maria B to Notes"). Click one to open the note. Chips are
+  shown, never read aloud, and a note pass posts its own message when it runs.
 
 Times are in settings; leave one empty to turn it off. Check-ins only run while Obsidian is
 open; a check-in missed while it was closed runs once when you open it, if it is still the

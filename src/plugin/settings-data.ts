@@ -28,6 +28,9 @@ export interface VoiceAgentSettings {
   greetOnOpen: boolean;
   pulses: boolean;
   weather: boolean;
+  capture: boolean;
+  graduate: boolean;
+  graduatePerDay: number;
 
   stt: SttChoice;
   tts: TtsChoice;
@@ -69,6 +72,9 @@ export const DEFAULT_SETTINGS: VoiceAgentSettings = {
   greetOnOpen: true,
   pulses: true,
   weather: true,
+  capture: true,
+  graduate: true,
+  graduatePerDay: 5,
 
   stt: 'local',
   tts: 'system',

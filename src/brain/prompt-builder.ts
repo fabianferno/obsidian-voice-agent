@@ -19,10 +19,13 @@ import { OPEN_TAG, CLOSE_TAG } from './actions.js';
 export interface SystemPromptOptions {
   /** Shown to the engine; the persona's own name lives in identity.md. */
   agentName?: string;
+  /** File what is worth keeping from conversations into the vault (default on). */
+  capture?: boolean;
 }
 
 export function buildSystemPrompt(config: AgentConfig, opts: SystemPromptOptions = {}): string {
-  const { boardPath, agentFolder, dailyFolder } = getLayout();
+  const { boardPath, agentFolder, dailyFolder, captureFolder } = getLayout();
+  const capture = opts.capture !== false;
   const name = opts.agentName?.trim() || 'the agent';
   const memory = config.memory.slice(0, 20).join('\n- ');
 
@@ -73,10 +76,16 @@ ${memory ? `- ${memory}` : '(none yet)'}
 - Do not edit the kanban board ("${boardPath}") or the files in "${agentFolder}/" directly.
   Change them only through agent actions (below), which keep their format intact.
 - Never delete notes or overwrite large sections unless the user clearly asks.
+- The user's own words in a note are never rewritten, paraphrased or "cleaned up". Add new facts
+  as dated lines under "## Timeline" (- **YYYY-MM-DD** | what | [Source: where it came from]),
+  above "##### References". The only part you may rewrite is a short summary under the title.
+- Facts come from the user or the vault, never from your own outside knowledge. Do not guess.
+- A note has exactly one type tag (see the vault's CLAUDE.md for its tags). Never add maturity
+  tags; the folder says how mature a note is.
 
 # Agent actions
-To change the board, record a memory, write a people or literature note, or edit your own
-config, end your reply with ONE block like this, after everything you say:
+To change the board, record a memory, file something in a note, or edit your own config, end
+your reply with ONE block like this, after everything you say:
 
 ${OPEN_TAG}[{"type":"add_task","text":"Call the bank","column":"Backlog"}]${CLOSE_TAG}
 
@@ -90,14 +99,19 @@ The block is never shown or spoken. Put a JSON array of one or more actions in i
 - {"type":"complete_task","task":"<exact card text>","from":"<column>"}
 - {"type":"add_task","text":"<card text>","column":"<column>"}
 - {"type":"reschedule_task","task":"<exact card text>","newDate":"YYYY-MM-DD"}
-- {"type":"people_note","name":"<person>","note":"<what to record>"}
-- {"type":"literature_note","title":"<title>","noteType":"book|article|podcast","source":"<url or author>","note":"<what to record>"}
+- {"type":"note","title":"<note name>","noteType":"<type tag: people|projects|org|concept|meeting|literature|personal|...>","text":"<what to record, in the user's words>"}
 - {"type":"update_memory","observation":"<durable observation about the user>"}
 - {"type":"propose_config_edit","file":"soul.md|identity.md|user.md|goals.md","section":"<exact heading>","operation":"append_bullet|prepend_bullet|replace_line|set_field","content":"<text>","rationale":"<why>","match":"<for replace_line>","field":"<for set_field>"}
 - {"type":"apply_config_edit"} and {"type":"discard_config_edit"}
 
 Rules:
-- "Move it to tomorrow", "push to Friday", "postpone" change a card's DATE: that is
+${capture ? `- Filing (the note action): when the user tells you something worth keeping, file it in the
+  same reply: a person or project they talk about with specifics, their own idea or framework
+  (title and text in their exact words, never paraphrased), a decision, a commitment, a book or
+  article with their reaction. An existing note (any folder) gets a dated line; a new subject
+  gets a new note${captureFolder ? ` in "${captureFolder}/"` : ''}. Skip passing mentions, small talk and requests. Say in
+  a few words what you filed.
+` : ''}- "Move it to tomorrow", "push to Friday", "postpone" change a card's DATE: that is
   reschedule_task with an absolute date you work out from the current time. Not move_task.
 - When the user says they finished something that matches a card, emit complete_task for that
   exact card text. If more than one card matches, complete none and ask which.
@@ -124,6 +138,18 @@ export interface TurnOptions {
   spoken?: boolean;
   /** The board's columns, in order. Any of them is valid in an action. */
   columns?: string[];
+  /** What the daily note pass did since the user was last told (morning, startup). */
+  secondBrain?: { moved: string[]; asked: number; trashed: string[]; waiting: number };
+}
+
+function formatSecondBrain(s: NonNullable<TurnOptions['secondBrain']>): string {
+  const lines = [
+    s.moved.length ? `- Moved to notes: ${s.moved.join(', ')}` : '',
+    s.trashed.length ? `- Trashed (the user said yes): ${s.trashed.join(', ')}` : '',
+    s.asked ? `- New questions left inside notes: ${s.asked}` : '',
+    `- Notes waiting on the user's answer: ${s.waiting}`,
+  ].filter(Boolean);
+  return `\n# Second brain (mention in one short sentence: what moved, and how many notes wait for an answer)\n${lines.join('\n')}\n`;
 }
 
 function boardMissingNote(boardPath: string): string {
@@ -168,7 +194,7 @@ ${v.boardMissing ? boardMissingNote(v.boardMissing) : `- Columns: ${opts.columns
 
 # Priority scores (use these for opinionated recommendations)
 ${formatPriorityScores(context, config)}
-${buildFocusSessionContext(opts.activeSessions, opts.completedToday)}
+${buildFocusSessionContext(opts.activeSessions, opts.completedToday)}${opts.secondBrain ? formatSecondBrain(opts.secondBrain) : ''}
 # Signals
 ${signals.map(s => `- ${s.type}: ${JSON.stringify(s.payload)}`).join('\n') || '- none'}
 ${pending}

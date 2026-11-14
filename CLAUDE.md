@@ -9,7 +9,8 @@ user's computer (Claude Code by default, Codex or Antigravity) as its brain, lis
 listens with local Whisper and speaks with the OS's own voice (or ElevenLabs / Sarvam /
 Soniox), and adds accountability features:
 editable personality files, morning/midday/evening check-ins, adaptive nudges, focus tracking
-on the kanban Doing column, and a 48h triage nudge for quick-capture notes. Everything runs
+on the kanban Doing column, filing what you mention into notes, and a daily pass that moves
+ready capture notes to the notes folder or asks a question inside them. Everything runs
 inside Obsidian; there is no server.
 
 Agent state and the local voice runtime live in `~/.obsidian-voice-agent/`, outside the
@@ -37,7 +38,7 @@ tag equal to the version (no "v"). `.github/workflows/release.yml` builds and at
   API keys via `app.secretStorage`); `view.ts` (side panel); `transcript.ts` (panel model,
   implements `VoiceUi`).
 - `src/agent/agent.ts` - the agent, UI-independent. One engine conversation, turns run one at
-  a time (`exclusive`). Local commands (/pause, /clear, estimates, triage) short-circuit before
+  a time (`exclusive`). Local commands (/pause, /clear, /graduate, estimates) short-circuit before
   the engine. Proactive messages (checkpoints, pulses, focus) go out through `deliver`.
 - `src/engines/` - CLI adapters. Claude Code stays running between turns (stream-json on
   stdin, `--resume` after an interrupt); Codex and Antigravity run one process per turn and
@@ -48,6 +49,13 @@ tag equal to the version (no "v"). `.github/workflows/release.yml` builds and at
 - `src/brain/` - `prompt-builder.ts` (system prompt = personality + rules + actions protocol;
   per-turn [Context] block), `actions.ts` (the `<actions>[...]</actions>` protocol: parse,
   validate, stream filter), `signals.ts`, `priority.ts`.
+- `src/agent/graduation.ts` - the daily note pass. A read-only engine session (EngineOptions
+  `readOnly`) decides per capture note: `graduate_note`, `ask_note` or `trash_note`; the plugin
+  writes. `missingUserLines` refuses any rewrite that drops a line the user wrote. Moves go
+  through the injected `VaultOps` (Obsidian's fileManager, so links follow). State lives in the
+  store under `graduation`; actions are logged to `<agentFolder>/log.md`.
+- `src/vault/notes.ts` - note shape helpers: find by name or alias, `## Timeline` append, the
+  `> [!question] Voice Agent` callout. `src/journal/capture.ts` - the `note` action writer.
 - `src/agent/execute-actions.ts` - runs actions through the tested writers. Config edits are
   gated: propose stages (30 min TTL), apply writes, discard drops.
 - `src/voice/` - `session.ts` (utterance -> STT -> agent -> sentence chunks -> TTS -> player,
@@ -68,6 +76,8 @@ tag equal to the version (no "v"). `.github/workflows/release.yml` builds and at
 - The agent NEVER reads or writes the daily notes folder. Search skips it, the prompt forbids
   it, and Claude Code permission rules block it.
 - Edits to soul.md, identity.md, user.md, goals.md need the user's yes. memory.md is ungated.
+- The user's own lines in a note are never rewritten. Agent additions go to `## Timeline` with a
+  source; only the summary under the title is rewritten. Notes are trashed only after a yes.
 - `editor.ts` is the only write path for the personality files.
 - Use `window.setTimeout` / `window.setInterval` (popout-safe); tests alias `window` to the
   global object in `tests/setup.ts`.

@@ -1,6 +1,6 @@
 import type { EngineOptions } from './types.js';
 import { PerTurnSession, messageText, type LineParsed, type LineState } from './per-turn.js';
-import { asObject, asString, toText, type JsonObject } from '../utils/json.js';
+import { asArray, asObject, asString, toText, type JsonObject } from '../utils/json.js';
 
 export function codexArgs(opts: EngineOptions, prompt: string, threadId?: string): string[] {
   const args = threadId ? ['exec', 'resume', '--json'] : ['exec', '--json'];
@@ -11,9 +11,11 @@ export function codexArgs(opts: EngineOptions, prompt: string, threadId?: string
   // The value is parsed as TOML; a JSON string is a valid TOML basic string.
   if (opts.systemPrompt && !threadId) args.push('-c', `developer_instructions=${JSON.stringify(opts.systemPrompt)}`);
   args.push(
-    ...(opts.permissions === 'full'
-      ? ['--dangerously-bypass-approvals-and-sandbox']
-      : ['-c', 'sandbox_mode="workspace-write"']),
+    ...(opts.readOnly
+      ? ['-c', 'sandbox_mode="read-only"']
+      : opts.permissions === 'full'
+        ? ['--dangerously-bypass-approvals-and-sandbox']
+        : ['-c', 'sandbox_mode="workspace-write"']),
   );
   if (opts.model) args.push('-m', opts.model);
   args.push(...opts.extraArgs, '--');
@@ -50,6 +52,12 @@ export function parseCodexLine(obj: JsonObject, state: LineState): LineParsed {
     case 'item.completed':
       if (item.type === 'agent_message' && typeof item.text === 'string') {
         out.events.push(...messageText(item.text, state));
+      } else if (item.type === 'file_change') {
+        for (const change of asArray(item.changes).map(asObject)) {
+          const file = asString(change.path);
+          const kind = change.kind === 'add' ? 'created' : change.kind === 'delete' ? 'deleted' : 'updated';
+          if (file) out.events.push({ type: 'file', path: file, kind });
+        }
       } else if (item.type === 'error' && item.message) {
         out.error = toText(item.message);
       }

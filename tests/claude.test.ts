@@ -26,7 +26,7 @@ describe('parseClaudeLine', () => {
       { type: 'assistant', parent_tool_use_id: null, message: { content: [{ type: 'tool_use', name: 'Edit', input: { file_path: '/v/Projects/Garden.md' } }] } },
       state,
     );
-    expect(tool.events).toEqual([{ type: 'status', text: 'Editing Projects/Garden.md' }]);
+    expect(tool.events).toEqual([{ type: 'status', text: 'Editing Projects/Garden.md' }, { type: 'file', path: '/v/Projects/Garden.md' }]);
 
     expect(parseClaudeLine({ type: 'result', is_error: false, session_id: 's1' }, state).result).toEqual({});
     expect(parseClaudeLine({ type: 'result', is_error: true, result: 'boom' }, state).result).toEqual({ error: 'boom' });
@@ -53,6 +53,12 @@ describe('claudeArgs', () => {
     expect(args).toContain('--dangerously-skip-permissions');
     expect(args).not.toContain('acceptEdits');
     expect(args).toEqual(expect.arrayContaining(['--model', 'sonnet', '--foo']));
+  });
+  it('read-only blocks edits and ignores full permissions', () => {
+    const args = claudeArgs({ ...base, permissions: 'full', readOnly: true });
+    expect(args).not.toContain('--dangerously-skip-permissions');
+    expect(args.slice(args.indexOf('--permission-mode'), args.indexOf('--permission-mode') + 2)).toEqual(['--permission-mode', 'default']);
+    expect(args).toEqual(expect.arrayContaining(['Edit', 'Write', 'NotebookEdit']));
   });
 });
 

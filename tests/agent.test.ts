@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
-import { mkdirSync, readFileSync, writeFileSync, existsSync } from 'fs';
+import { mkdirSync, readFileSync, writeFileSync, existsSync, utimesSync } from 'fs';
 import { join } from 'path';
 import { tmpdir } from 'os';
 import { Agent, type AgentMessage, type AgentSettings } from '../src/agent/agent.js';
@@ -45,6 +45,9 @@ const SETTINGS: AgentSettings = {
   greetOnOpen: false,
   pulses: false,
   weather: false,
+  capture: true,
+  graduate: false,
+  graduatePerDay: 5,
 };
 
 describe('Agent', () => {
@@ -54,6 +57,7 @@ describe('Agent', () => {
   let delivered: AgentMessage[];
   let reply: (p: string) => string;
   let agent: Agent;
+  let readOnlyEngines: FakeEngine[];
 
   beforeEach(async () => {
     vault = makeVault();
@@ -63,9 +67,10 @@ describe('Agent', () => {
     engines = [];
     delivered = [];
     reply = () => 'Hello there.';
-    agent = new Agent(vault, store, (sys) => {
+    readOnlyEngines = [];
+    agent = new Agent(vault, store, (sys, opts) => {
       const e = new FakeEngine(sys, (p) => reply(p));
-      engines.push(e);
+      (opts?.readOnly ? readOnlyEngines : engines).push(e);
       return e;
     }, SETTINGS, (m) => delivered.push(m));
     await agent.start();
@@ -75,6 +80,80 @@ describe('Agent', () => {
     agent.stop();
     suppressPulses();
     resumePulses();
+  });
+
+  it('tells the engine to file things, and files a note action into the capture folder', async () => {
+    reply = () => 'Filed it.<actions>[{"type":"note","title":"Ambition debt","noteType":"concept","text":"every year you delay going big compounds"}]</actions>';
+    await agent.handleUserMessage('I call it ambition debt: every year you delay going big compounds');
+    expect(engines[0].systemPrompt).toContain('{"type":"note"');
+    expect(engines[0].systemPrompt).toContain('Filing (the note action)');
+    const note = readFileSync(join(vault, 'Inbox', 'Ambition debt.md'), 'utf-8');
+    expect(note).toContain('  - concept');
+    expect(note).toContain('every year you delay going big compounds [Source: voice chat]');
+  });
+
+  it('reports the notes a turn touched: its own edits and its actions', async () => {
+    mkdirSync(join(vault, 'Neurons'), { recursive: true });
+    writeFileSync(join(vault, 'Neurons', 'Caleb.md'), '# Caleb\n');
+    engines.length = 0;
+    agent.stop();
+    const seen: string[] = [];
+    const editing = new Agent(vault, store, (sys) => {
+      const e = new FakeEngine(sys, () => 'Done.<actions>[{"type":"note","title":"Ambition debt","noteType":"concept","text":"x"},{"type":"add_task","text":"Call Caleb","column":"To Do"}]</actions>');
+      e.turn = async (prompt, onEvent) => {
+        onEvent({ type: 'file', path: join(vault, 'Neurons', 'Caleb.md') });
+        onEvent({ type: 'text', text: 'Done.<actions>[{"type":"note","title":"Ambition debt","noteType":"concept","text":"x"},{"type":"add_task","text":"Call Caleb","column":"To Do"}]</actions>' });
+        return { interrupted: false };
+      };
+      return e;
+    }, SETTINGS, (m) => delivered.push(m));
+    const out = await editing.handleUserMessage('go', { onChange: (c) => seen.push(`${c.kind} ${c.path}`) });
+    expect(out.changes).toEqual([
+      { kind: 'updated', path: 'Neurons/Caleb.md' },
+      { kind: 'created', path: 'Inbox/Ambition debt.md' },
+      { kind: 'updated', path: 'Kanban.md' },
+    ]);
+    expect(seen).toEqual(['updated Neurons/Caleb.md', 'created Inbox/Ambition debt.md', 'updated Kanban.md']);
+  });
+
+  it('leaves the filing rule out when capture is off', () => {
+    const config = loadAgentConfig(join(vault, 'agent'));
+    expect(buildSystemPrompt(config, { capture: false })).not.toContain('Filing (the note action)');
+  });
+
+  it('/graduate runs a note pass in a read-only engine and reports it', async () => {
+    const file = join(vault, 'Inbox', 'Kanimozhi.md');
+    mkdirSync(join(vault, 'Inbox'), { recursive: true });
+    writeFileSync(file, '---\ntags:\n  - people\n---\n# Kanimozhi\n');
+    const old = new Date(Date.now() - 3 * 24 * 60 * 60 * 1000);
+    utimesSync(file, old, old);
+    reply = (p) => p.includes('<<<note')
+      ? '<actions>[{"type":"ask_note","file":"Inbox/Kanimozhi.md","question":"How do you know Kanimozhi?"}]</actions>'
+      : 'Hello there.';
+    const ack = await agent.handleUserMessage('/graduate');
+    expect(ack.text).toContain('Working through up to 5');
+    await vi.waitFor(() => expect(delivered.map(d => d.text)).toContain('Note pass done: left 1 question in notes.'));
+    expect(readOnlyEngines).toHaveLength(1);
+    expect(engines).toHaveLength(0);
+    const pass = delivered.find(d => d.source === 'note-pass')!;
+    expect(pass.speak).toBe(false);
+    expect(pass.changes).toEqual([{ kind: 'asked', path: 'Inbox/Kanimozhi.md' }]);
+    expect(readFileSync(file, 'utf-8')).toContain('> How do you know Kanimozhi?');
+  });
+
+  it('the startup greeting mentions what the note pass did, once', async () => {
+    agent.stop();
+    await store.setSessionState('graduation', JSON.stringify({ asked: {}, report: { moved: ['Maria B'], asked: [], trashed: [] } }));
+    const greeter = new Agent(vault, store, (sys) => {
+      const e = new FakeEngine(sys, () => 'Morning. Maria B moved to your notes.');
+      engines.push(e);
+      return e;
+    }, { ...SETTINGS, greetOnOpen: true }, (m) => delivered.push(m));
+    await greeter.start();
+    await vi.waitFor(() => expect(delivered.map(d => d.source)).toContain('startup-briefing'));
+    expect(engines.at(-1)!.prompts[0]).toContain('- Moved to notes: Maria B');
+    await vi.waitFor(async () => expect(JSON.parse((await store.getSessionState('graduation'))!).report.moved).toEqual([]));
+    greeter.stop();
   });
 
   it('creates starter agent files on first start', () => {

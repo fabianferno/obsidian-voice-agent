@@ -110,18 +110,31 @@ export function parseInboxKanban(content: string): KanbanBoard {
   return { columns, columnOrder };
 }
 
-export function parseFrontmatter(content: string): { tags: string[]; [key: string]: unknown } {
+export function parseFrontmatter(content: string): { tags: string[]; aliases: string[]; [key: string]: unknown } {
   const fmMatch = content.match(/^---\n([\s\S]*?)\n---/);
-  if (!fmMatch) return { tags: [] };
-
+  if (!fmMatch) return { tags: [], aliases: [] };
   const fm = fmMatch[1];
-  const result: { tags: string[]; [key: string]: unknown } = { tags: [] };
+  return { tags: frontmatterList(fm, 'tags'), aliases: frontmatterList(fm, 'aliases') };
+}
 
-  // Parse tags: [tag1, tag2] or tags:\n  - tag1
-  const tagsMatch = fm.match(/tags:\s*\[([^\]]*)\]/);
-  if (tagsMatch) {
-    result.tags = tagsMatch[1].split(',').map(t => t.trim()).filter(Boolean);
+/**
+ * A list property in any of the forms Obsidian writes: `key: [a, b]`,
+ * `key: a, b` and the YAML block list (`key:` then `  - a` lines).
+ */
+export function frontmatterList(fm: string, key: string): string[] {
+  const clean = (t: string) => t.trim().replace(/^["']|["']$/g, '').replace(/^#/, '').trim();
+  const lines = fm.split('\n');
+  const i = lines.findIndex(l => new RegExp(`^${key}:`).test(l));
+  if (i === -1) return [];
+  const inline = lines[i].slice(key.length + 1).trim();
+  if (inline.startsWith('[')) return inline.replace(/^\[|\]$/g, '').split(',').map(clean).filter(Boolean);
+  if (inline) return inline.split(',').map(clean).filter(Boolean);
+  const out: string[] = [];
+  for (const line of lines.slice(i + 1)) {
+    const m = line.match(/^\s+-\s*(.*)$/);
+    if (!m) break;
+    const v = clean(m[1]);
+    if (v) out.push(v);
   }
-
-  return result;
+  return out;
 }

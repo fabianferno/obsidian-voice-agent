@@ -10,13 +10,13 @@ import { asArray, asObject, asString, toText, type JsonObject } from '../utils/j
 export const READ_ONLY_COMMANDS = ['find', 'ls', 'grep', 'rg', 'cat', 'head', 'tail', 'wc'];
 
 export function antigravityArgs(opts: EngineOptions, prompt: string, conversationId?: string): string[] {
-  const args =
-    opts.permissions === 'full'
+  const readOnlySettings = ['--settings', JSON.stringify({ permissions: { allow: READ_ONLY_COMMANDS.map((c) => `command(${c})`) } })];
+  // Read-only: without accept-edits, headless agy refuses every edit it would ask about.
+  const args = opts.readOnly
+    ? readOnlySettings
+    : opts.permissions === 'full'
       ? ['--dangerously-skip-permissions']
-      : [
-          '--mode', 'accept-edits',
-          '--settings', JSON.stringify({ permissions: { allow: READ_ONLY_COMMANDS.map((c) => `command(${c})`) } }),
-        ];
+      : ['--mode', 'accept-edits', ...readOnlySettings];
   args.push('--output-format', 'stream-json');
   if (opts.model) args.push('--model', opts.model);
   if (conversationId) args.push('--conversation', conversationId);
@@ -61,6 +61,9 @@ export function parseAntigravityLine(obj: JsonObject, state: LineState): LinePar
     } else if (step.step_type && step.step_type !== 'user_input' && step.state === 'ACTIVE' && !state.seenSteps.has(key)) {
       state.seenSteps.add(key);
       out.events.push({ type: 'status', text: describeStep(step) });
+      const tool = asString(step.tool_name) ?? '';
+      const file = asString(asObject(asObject(step.tool_info).parameters).Path);
+      if (file && /write|replace|edit/.test(tool)) out.events.push({ type: 'file', path: file });
     }
   } else if (obj.event === 'result') {
     const result = asObject(obj.result);

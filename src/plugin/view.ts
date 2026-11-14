@@ -4,6 +4,11 @@ import { ItemView, setIcon, type WorkspaceLeaf } from 'obsidian';
 import type VoiceAgentPlugin from './main.js';
 import { describeSource, type Entry } from './transcript.js';
 import type { VoiceState } from '../voice/session.js';
+import { describeChange, type NoteChange } from '../agent/changes.js';
+
+const CHANGE_ICONS: Record<NoteChange['kind'], string> = {
+  created: 'file-plus', updated: 'file-pen', moved: 'folder-input', asked: 'circle-help', trashed: 'trash-2', deleted: 'trash-2',
+};
 
 export const VIEW_TYPE = 'voice-agent-panel';
 
@@ -141,7 +146,26 @@ export class VoiceAgentView extends ItemView {
     if (e.text) el.createDiv({ cls: 'va-text', text: e.text });
     if (!e.done && !e.text) el.createDiv({ cls: 'va-typing', text: e.status ?? 'Thinking...' });
     else if (!e.done && e.status) el.createDiv({ cls: 'va-status', text: e.status });
+    if (e.changes?.length) this.renderChanges(el, e.changes);
     if (e.error) el.createDiv({ cls: 'va-error-text', text: e.error });
     if (e.interrupted) el.createDiv({ cls: 'va-status', text: 'Stopped' });
+  }
+
+  /** One chip per note or file the turn touched; click to open it. */
+  private renderChanges(el: HTMLElement, changes: NoteChange[]): void {
+    const row = el.createDiv('va-changes');
+    for (const c of changes) {
+      const target = c.kind === 'moved' ? c.to ?? c.path : c.path;
+      const gone = c.kind === 'trashed' || c.kind === 'deleted';
+      const chip = row.createEl(gone ? 'span' : 'a', { cls: `va-change va-change-${c.kind}`, attr: { 'aria-label': target } });
+      setIcon(chip.createSpan('va-change-icon'), CHANGE_ICONS[c.kind]);
+      chip.createSpan({ text: describeChange(c) });
+      if (!gone) {
+        chip.onClickEvent((ev: MouseEvent) => {
+          ev.preventDefault();
+          void this.app.workspace.openLinkText(target, '', ev.metaKey || ev.ctrlKey);
+        });
+      }
+    }
   }
 }

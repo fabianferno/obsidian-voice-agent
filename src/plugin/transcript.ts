@@ -5,6 +5,7 @@
 // session can write to it directly.
 
 import type { AgentMessageHandle, VoiceState, VoiceUi } from '../voice/session.js';
+import { addChange, type NoteChange } from '../agent/changes.js';
 
 export interface Entry {
   id: number;
@@ -16,6 +17,8 @@ export interface Entry {
   source?: string;
   /** What the engine is doing right now (while the reply is in progress). */
   status?: string;
+  /** Notes and files this message's turn created, edited or moved. */
+  changes?: NoteChange[];
   done?: boolean;
   error?: string;
   interrupted?: boolean;
@@ -32,7 +35,7 @@ export function describeSource(source?: string): string {
   switch (source) {
     case 'startup-briefing': return 'Hello';
     case 'pulse': return 'Nudge';
-    case 'synapse-scan': return 'Triage';
+    case 'note-pass': return 'Notes';
     case 'focus-nudge': case 'task-start': case 'idle-pulse': return 'Focus';
     case 'wip-guard': return 'WIP limit';
     case 'stuck-task': return 'Stuck card';
@@ -91,6 +94,10 @@ export class Transcript implements VoiceUi {
       },
       status: (t) => {
         entry.status = t;
+        this.emit(entry);
+      },
+      change: (c) => {
+        entry.changes = addChange(entry.changes ?? [], c);
         this.emit(entry);
       },
       end: (o) => {

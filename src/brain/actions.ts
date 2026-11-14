@@ -25,6 +25,7 @@ export const ACTION_SCHEMA: Record<string, string[]> = {
   complete_task: ['task', 'from'],
   add_task: ['text', 'column'],
   reschedule_task: ['task', 'newDate'],
+  note: ['title', 'noteType', 'text'],
   people_note: ['name', 'note'],
   literature_note: ['title', 'noteType', 'source', 'note'],
   update_memory: ['observation'],
@@ -62,13 +63,11 @@ function stripReasoning(text: string): string {
     .replace(/<think(?:ing)?>[\s\S]*$/i, '');
 }
 
-/** Splits a finished reply into the words to show and the actions to run. */
-export function parseAgentReply(raw: string): ParsedReply {
+/** Removes every actions block from `raw`; returns the remaining words and the raw actions. */
+export function extractActionBlocks(raw: string): { message: string; actions: unknown[] } {
   const actions: unknown[] = [];
-  let message = stripReasoning(raw);
-
   const blockRe = /<actions>([\s\S]*?)(?:<\/actions>|$)/gi;
-  message = message.replace(blockRe, (_m, body: string) => {
+  const message = stripReasoning(raw).replace(blockRe, (_m, body: string) => {
     const json = body.trim().replace(/^```(?:json)?\s*/i, '').replace(/```$/, '').trim();
     if (!json) return '';
     try {
@@ -79,6 +78,12 @@ export function parseAgentReply(raw: string): ParsedReply {
     }
     return '';
   });
+  return { message, actions };
+}
+
+/** Splits a finished reply into the words to show and the actions to run. */
+export function parseAgentReply(raw: string): ParsedReply {
+  const { message, actions } = extractActionBlocks(raw);
 
   const vaultActions: VaultAction[] = [];
   const rejected: unknown[] = [];
@@ -144,6 +149,8 @@ export function describeActions(actions: VaultAction[] | undefined): string {
           return `Marked "${action.task}" done.`;
         case 'add_task':
           return `Added "${action.text}" to ${action.column}.`;
+        case 'note':
+          return `Noted in "${action.title}".`;
         case 'people_note':
           return `Noted that in ${action.name}'s note.`;
         case 'literature_note':
