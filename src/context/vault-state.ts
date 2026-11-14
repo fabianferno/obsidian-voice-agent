@@ -5,7 +5,7 @@ import type { VaultStateContext, Task, PersonNote, LocationContext } from '../co
 import type { Store } from '../store/store.js';
 import { parseInboxKanban } from '../vault/parser.js';
 import { searchByTag } from '../vault/search.js';
-import { boardFile } from '../config/paths.js';
+import { boardFile, getLayout } from '../config/paths.js';
 
 export async function getVaultState(
   vaultPath: string,
@@ -14,7 +14,8 @@ export async function getVaultState(
 ): Promise<VaultStateContext> {
   // Parse Kanban
   const inboxPath = boardFile(vaultPath);
-  const board = existsSync(inboxPath)
+  const boardExists = existsSync(inboxPath);
+  const board = boardExists
     ? parseInboxKanban(readFileSync(inboxPath, 'utf-8'))
     : { columns: {}, columnOrder: [] };
 
@@ -89,5 +90,6 @@ export async function getVaultState(
     wipWarning,
     peopleNotes,
     location,
+    ...(boardExists ? {} : { boardMissing: getLayout().boardPath }),
   };
 }

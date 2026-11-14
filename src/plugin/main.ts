@@ -8,7 +8,7 @@ import WORKER_SOURCE from 'virtual:voice-worker';
 import ORT_GLUE from 'virtual:ort-glue';
 import { Agent, type AgentSettings } from '../agent/agent.js';
 import { Store, type StoreData } from '../store/store.js';
-import { setLayout, setVaultPath } from '../config/paths.js';
+import { boardFile, getLayout, setLayout, setVaultPath } from '../config/paths.js';
 import { checkEngine, createEngine, ENGINE_INFO, type EngineSession } from '../engines/index.js';
 import { shellEnv } from '../engines/shell-env.js';
 import { VoiceSession } from '../voice/session.js';
@@ -71,6 +71,9 @@ export default class VoiceAgentPlugin extends Plugin {
     // Engine lookup and agent start can take a moment (login shell, files):
     // do it once the workspace is ready so Obsidian's startup is not delayed.
     this.app.workspace.onLayoutReady(() => {
+      if (!existsSync(boardFile(this.vaultPath))) {
+        new Notice(`Voice agent: no Kanban board at "${getLayout().boardPath}". Set the board path in the plugin settings.`, 15000);
+      }
       void this.startAgent();
       // Free the space Kokoro (0.1.x) used; harmless when there is nothing to remove.
       removeOldKokoroModels().then(

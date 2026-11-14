@@ -126,6 +126,12 @@ export interface TurnOptions {
   columns?: string[];
 }
 
+function boardMissingNote(boardPath: string): string {
+  return `- NOT FOUND: there is no board file at "${boardPath}". You cannot see the user's tasks.
+  Do NOT say the board or any column is empty. Tell the user the board file was not found and to set
+  "Kanban board" in the Voice Agent settings to the path of their board note.`;
+}
+
 export function buildTurn(
   kind: CheckinType,
   config: AgentConfig,
@@ -150,14 +156,14 @@ subject, emit discard_config_edit. Do not propose the same change again while it
 - Location: ${context.location.city}${context.location.isTravelling ? ' (travelling)' : ''}
 
 # Board
-- Columns: ${opts.columns?.length ? opts.columns.join(', ') : 'Backlog, To Do, Doing, Done'} (any of these is valid in an action)
+${v.boardMissing ? boardMissingNote(v.boardMissing) : `- Columns: ${opts.columns?.length ? opts.columns.join(', ') : 'Backlog, To Do, Doing, Done'} (any of these is valid in an action)
 - Backlog: ${v.backlogCount} cards
 - To Do: ${v.todoCount} (${list(v.todoTasks)})${v.todoCount > 5 ? ' OVER SOFT LIMIT' : ''}
 - Doing: ${v.doingCount} (${list(v.doingTasks)})
 - Done today: ${v.doneToday.map(t => t.text).join(', ') || 'nothing yet'}
 - Overdue: ${v.overdueTasks.map(t => `${t.text} (due ${t.dueDate})`).join(', ') || 'none'}
 - Due in 3 days: ${v.dueSoon.map(t => `${t.text} (due ${t.dueDate})`).join(', ') || 'none'}
-- Stuck in Doing 3+ days: ${v.stuckTasks.map(t => `${t.text} (${t.daysInCurrentColumn}d)`).join(', ') || 'none'}
+- Stuck in Doing 3+ days: ${v.stuckTasks.map(t => `${t.text} (${t.daysInCurrentColumn}d)`).join(', ') || 'none'}`}
 - Workout streak: ${v.currentStreak.workout}d
 
 # Priority scores (use these for opinionated recommendations)

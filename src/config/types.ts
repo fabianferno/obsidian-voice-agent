@@ -137,6 +137,8 @@ export interface VaultStateContext {
   wipWarning: boolean;
   peopleNotes: PersonNote[];
   location?: LocationContext;
+  /** Set to the configured board path when that file does not exist. */
+  boardMissing?: string;
 }
 
 export interface PersonNote {
